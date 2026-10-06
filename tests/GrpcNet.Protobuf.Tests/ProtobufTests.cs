@@ -388,6 +388,18 @@ namespace GrpcNet.Protobuf.Tests
         }
 
         [Test]
+        public void BindConflictingWithARegisteredDescriptorLeavesNothingBehind()
+        {
+            // A second, separately built copy of test.proto: same names, different descriptor instances.
+            Google.Protobuf.Reflection.FileDescriptor copy = Google.Protobuf.Reflection.FileDescriptor.BuildFromByteStrings(new[] { TestReflection.Descriptor.SerializedData })[0];
+            var builder = new GrpcProcessorBuilder().AddService(copy.Services.Single(s => s.Name == "Calculator"), requireComplete: false);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => builder.Bind(Calculator.Add, r => r));
+            Assert.That(ex!.Message, Does.Contain("two different descriptors"));
+            Assert.That(builder.Bindings, Is.Empty);
+        }
+
+        [Test]
         public void MethodsOfUnregisteredServicesAreNotChecked()
         {
             var builder = new GrpcProcessorBuilder()

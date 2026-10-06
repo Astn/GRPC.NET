@@ -21,7 +21,12 @@ namespace GrpcNet.Protobuf
         {
             if (builder == null) throw new ArgumentNullException(nameof(builder));
             if (method == null) throw new ArgumentNullException(nameof(method));
-            // The binding is validated and added first, so a rejected Bind leaves no service registration behind.
+            // Everything that can reject the Bind is checked before the builder changes, so a rejected Bind leaves nothing behind.
+            if (s_registries.TryGetValue(builder, out ServiceRegistry? registry))
+            {
+                registry.ThrowIfConflicting(method.Descriptor.Service);
+            }
+
             builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
                 method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
@@ -54,23 +59,24 @@ namespace GrpcNet.Protobuf
 
             internal void Add(ServiceDescriptor service, bool requireComplete)
             {
-                foreach (Registration existing in _services)
+                ThrowIfConflicting(service);
+                Registration? existing = Find(service.FullName);
+                if (existing != null)
                 {
-                    if (existing.Service.FullName != service.FullName)
-                    {
-                        continue;
-                    }
-
-                    if (!ReferenceEquals(existing.Service, service))
-                    {
-                        throw new InvalidOperationException("The service '" + service.FullName + "' is registered from two different descriptors.");
-                    }
-
                     existing.RequireComplete |= requireComplete;
                     return;
                 }
 
                 _services.Add(new Registration(service, requireComplete));
+            }
+
+            internal void ThrowIfConflicting(ServiceDescriptor service)
+            {
+                Registration? existing = Find(service.FullName);
+                if (existing != null && !ReferenceEquals(existing.Service, service))
+                {
+                    throw new InvalidOperationException("The service '" + service.FullName + "' is registered from two different descriptors.");
+                }
             }
 
             internal void Check(IReadOnlyList<BoundMethod> bindings, ICollection<string> problems)
