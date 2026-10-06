@@ -2,6 +2,7 @@ using System;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
@@ -125,6 +126,7 @@ namespace GrpcNet
             End,
             NeedMore,
             Fault,
+            Transport,
             Canceled,
         }
 
@@ -135,7 +137,9 @@ namespace GrpcNet
         private GrpcProcessorOptions _options = null!;
         private CancellationToken _cancellation;
         private T _current = default!;
+        private Exception? _transportError;
         private int _stamp;
+        private int _busy;
         private bool _active;
         private bool _ended;
 
@@ -153,6 +157,7 @@ namespace GrpcNet
             _options = options;
             _cancellation = head.Cancellation;
             _current = default!;
+            _transportError = null;
             _ended = false;
             _active = true;
             Latch.Reset();
@@ -163,8 +168,14 @@ namespace GrpcNet
         {
             _active = false;
             _current = default!;
-            _input = null!;
+            if (IsIdle)
+            {
+                _input = null!;
+            }
         }
+
+        /// <summary>False while a read is still pending, such as one the handler started and never awaited.</summary>
+        internal bool IsIdle => Volatile.Read(ref _busy) == 0;
 
         internal ref readonly T CurrentRef(int stamp)
         {
@@ -175,19 +186,35 @@ namespace GrpcNet
         internal ValueTask<bool> MoveNextAsync(int stamp)
         {
             Check(stamp);
-            if (Latch.HasFault)
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             {
-                throw Latch.Exception();
+                throw new InvalidOperationException("MoveNextAsync was called before the previous read completed.");
             }
 
-            if (_ended)
+            bool pending = false;
+            try
             {
-                return new ValueTask<bool>(false);
-            }
+                if (Latch.HasFault)
+                {
+                    throw Latch.Exception();
+                }
 
-            if (_input.TryRead(out ReadResult buffered))
-            {
-                switch (Consume(in buffered))
+                if (_ended)
+                {
+                    return new ValueTask<bool>(false);
+                }
+
+                Step step;
+                try
+                {
+                    step = _input.TryRead(out ReadResult buffered) ? Consume(in buffered) : Step.NeedMore;
+                }
+                catch (Exception ex)
+                {
+                    step = Transport(ex);
+                }
+
+                switch (step)
                 {
                     case Step.Message:
                         return new ValueTask<bool>(true);
@@ -195,16 +222,26 @@ namespace GrpcNet
                         return new ValueTask<bool>(false);
                     case Step.Fault:
                         throw Latch.Exception();
+                    case Step.Transport:
+                        ExceptionDispatchInfo.Throw(_transportError!);
+                        break;
                     case Step.Canceled:
                         throw new OperationCanceledException(_cancellation);
                 }
 
-                // A partial frame is buffered and has been marked examined; wait for more data.
+                // Nothing, or only part of a frame, is buffered: wait for more data.
+                _source.Reset();
+                pending = true;
+                ReadUntilDone();
+                return new ValueTask<bool>(this, _source.Version);
             }
-
-            _source.Reset();
-            ReadUntilDone();
-            return new ValueTask<bool>(this, _source.Version);
+            finally
+            {
+                if (!pending)
+                {
+                    Volatile.Write(ref _busy, 0);
+                }
+            }
         }
 
         /// <summary>Reads the one request message of a unary or server-streaming call, and the end of the stream after it.</summary>
@@ -239,36 +276,26 @@ namespace GrpcNet
         {
             while (true)
             {
-                ValueTask<ReadResult> read;
+                Step step;
                 try
                 {
-                    read = _input.ReadAsync(_cancellation);
+                    ValueTask<ReadResult> read = _input.ReadAsync(_cancellation);
+                    if (!read.IsCompleted)
+                    {
+                        _readAwaiter = read.ConfigureAwait(false).GetAwaiter();
+                        _readAwaiter.UnsafeOnCompleted(_onReadCompleted);
+                        return;
+                    }
+
+                    ReadResult result = read.GetAwaiter().GetResult();
+                    step = Consume(in result);
                 }
                 catch (Exception ex)
                 {
-                    _source.SetException(ex);
-                    return;
+                    step = Transport(ex);
                 }
 
-                if (!read.IsCompleted)
-                {
-                    _readAwaiter = read.ConfigureAwait(false).GetAwaiter();
-                    _readAwaiter.UnsafeOnCompleted(_onReadCompleted);
-                    return;
-                }
-
-                ReadResult result;
-                try
-                {
-                    result = read.GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    _source.SetException(ex);
-                    return;
-                }
-
-                if (Finish(in result))
+                if (Complete(step))
                 {
                     return;
                 }
@@ -277,43 +304,67 @@ namespace GrpcNet
 
         private void OnReadCompleted()
         {
-            ReadResult result;
+            Step step;
             try
             {
-                result = _readAwaiter.GetResult();
+                ReadResult result = _readAwaiter.GetResult();
+                step = Consume(in result);
             }
             catch (Exception ex)
             {
-                _source.SetException(ex);
-                return;
+                step = Transport(ex);
             }
 
-            if (!Finish(in result))
+            if (!Complete(step))
             {
                 ReadUntilDone();
             }
         }
 
-        // Completes the pending MoveNextAsync from a read result. Returns false when more data is needed.
-        private bool Finish(in ReadResult result)
+        // Completes the pending MoveNextAsync; returns false when more data is needed. The reader is released before the
+        // continuation runs, so the continuation can read again.
+        private bool Complete(Step step)
         {
-            switch (Consume(in result))
+            if (step == Step.NeedMore)
+            {
+                return false;
+            }
+
+            Volatile.Write(ref _busy, 0);
+            switch (step)
             {
                 case Step.Message:
                     _source.SetResult(true);
-                    return true;
+                    break;
                 case Step.End:
                     _source.SetResult(false);
-                    return true;
+                    break;
                 case Step.Fault:
                     _source.SetException(Latch.Exception());
-                    return true;
-                case Step.Canceled:
-                    _source.SetException(new OperationCanceledException(_cancellation));
-                    return true;
+                    break;
+                case Step.Transport:
+                    _source.SetException(_transportError!);
+                    break;
                 default:
-                    return false;
+                    _source.SetException(new OperationCanceledException(_cancellation));
+                    break;
             }
+
+            return true;
+        }
+
+        // A failure of the pipe itself. The call's own cancellation is reported as cancellation; any other failure is
+        // latched, so the call ends INTERNAL even if the handler catches it.
+        private Step Transport(Exception ex)
+        {
+            if (ex is OperationCanceledException && _cancellation.IsCancellationRequested)
+            {
+                return Step.Canceled;
+            }
+
+            Latch.Latch(StatusCode.Internal, "The request stream failed.", _options);
+            _transportError = ex;
+            return Step.Transport;
         }
 
         private Step Consume(in ReadResult result)
@@ -455,8 +506,8 @@ namespace GrpcNet
         private CancellationToken _cancellation;
         private long _deadlineTicks;
         private int _stamp;
+        private int _busy;
         private bool _active;
-        private bool _inFlight;
 
         internal int Start(PipeWriter output, in CallHead head, GrpcProcessorOptions options, CallLatch latch)
         {
@@ -466,7 +517,6 @@ namespace GrpcNet
             _latch = latch;
             _cancellation = head.Cancellation;
             _deadlineTicks = head.DeadlineTicks;
-            _inFlight = false;
             _active = true;
             return ++_stamp;
         }
@@ -474,10 +524,16 @@ namespace GrpcNet
         internal void End()
         {
             _active = false;
-            _output = null!;
-            _state = null;
-            _latch = null!;
+            if (IsIdle)
+            {
+                _output = null!;
+                _state = null;
+                _latch = null!;
+            }
         }
+
+        /// <summary>False while the host's task for a write is still pending, such as one the handler never awaited.</summary>
+        internal bool IsIdle => Volatile.Read(ref _busy) == 0;
 
         internal ValueTask WriteAsync(int stamp, in T message)
         {
@@ -486,59 +542,83 @@ namespace GrpcNet
                 throw new InvalidOperationException("The message writer belongs to a call that has ended.");
             }
 
-            if (_inFlight)
+            // The pipe is single-writer: claim it, so a write that overlaps another, from any thread, is refused.
+            if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
             {
                 throw new InvalidOperationException("WriteAsync was called before the previous write completed.");
             }
 
-            if (_latch.HasFault)
-            {
-                throw _latch.Exception();
-            }
-
-            // Checked before anything is committed, so no message goes out after the deadline.
-            if (_deadlineTicks != 0 && Environment.TickCount64 >= _deadlineTicks)
-            {
-                throw _latch.Latch(StatusCode.DeadlineExceeded, "The deadline passed before the message was written.", _options);
-            }
-
-            _cancellation.ThrowIfCancellationRequested();
-
-            GrpcStatus written = WriteFrame(in message, _output, _options, out int framedBytes);
-            if (written.Code != StatusCode.OK)
-            {
-                throw _latch.Latch(in written);
-            }
-
-            if (_state == null)
-            {
-                return default;
-            }
-
-            ValueTask host;
+            bool handedOff = false;
             try
             {
-                host = _state.MessageWritten(_output, framedBytes);
-            }
-            catch (Exception)
-            {
-                _latch.Latch(new GrpcStatus(StatusCode.Internal));
-                throw;
-            }
+                if (_latch.HasFault)
+                {
+                    throw _latch.Exception();
+                }
 
-            if (host.IsCompletedSuccessfully)
-            {
-                host.GetAwaiter().GetResult();
-                return default;
-            }
+                // Checked before anything is committed, so no message goes out after the deadline.
+                if (_deadlineTicks != 0 && Environment.TickCount64 >= _deadlineTicks)
+                {
+                    throw _latch.Latch(StatusCode.DeadlineExceeded, "The deadline passed before the message was written.", _options);
+                }
 
-            return AwaitHostAsync(host);
+                _cancellation.ThrowIfCancellationRequested();
+
+                GrpcStatus written;
+                int framedBytes;
+                try
+                {
+                    written = WriteFrame(in message, _output, _options, out framedBytes);
+                }
+                catch (Exception)
+                {
+                    // The pipe failed, possibly after part of a frame was committed.
+                    _latch.Latch(new GrpcStatus(StatusCode.Internal));
+                    throw;
+                }
+
+                if (written.Code != StatusCode.OK)
+                {
+                    throw _latch.Latch(in written);
+                }
+
+                if (_state == null)
+                {
+                    return default;
+                }
+
+                ValueTask host;
+                try
+                {
+                    host = _state.MessageWritten(_output, framedBytes);
+                }
+                catch (Exception)
+                {
+                    _latch.Latch(new GrpcStatus(StatusCode.Internal));
+                    throw;
+                }
+
+                if (host.IsCompletedSuccessfully)
+                {
+                    host.GetAwaiter().GetResult();
+                    return default;
+                }
+
+                handedOff = true;
+                return AwaitHostAsync(host);
+            }
+            finally
+            {
+                if (!handedOff)
+                {
+                    Volatile.Write(ref _busy, 0);
+                }
+            }
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
         private async ValueTask AwaitHostAsync(ValueTask host)
         {
-            _inFlight = true;
             try
             {
                 await host.ConfigureAwait(false);
@@ -550,7 +630,7 @@ namespace GrpcNet
             }
             finally
             {
-                _inFlight = false;
+                Volatile.Write(ref _busy, 0);
             }
         }
 

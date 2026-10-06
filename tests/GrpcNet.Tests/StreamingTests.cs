@@ -71,7 +71,8 @@ namespace GrpcNet.Tests
                         return default;
                     }
 
-                    _credit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    // One wait per stream, so a release always reaches every write that is waiting.
+                    _credit ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     return new ValueTask(_credit.Task);
                 case HostPolicy.ThrowSync:
                     throw new IOException("The transport failed.");
@@ -145,6 +146,72 @@ namespace GrpcNet.Tests
         public override Span<byte> GetSpan(int sizeHint = 0) => _inner.GetSpan(sizeHint);
     }
 
+    /// <summary>A PipeWriter that can block in GetSpan, or fail in GetSpan or Advance.</summary>
+    internal sealed class TrappedWriter : PipeWriter
+    {
+        private readonly PipeWriter _inner;
+
+        public TrappedWriter(PipeWriter inner)
+        {
+            _inner = inner;
+        }
+
+        public ManualResetEventSlim Entered { get; } = new ManualResetEventSlim();
+
+        public ManualResetEventSlim Release { get; } = new ManualResetEventSlim();
+
+        public bool BlockNextGetSpan { get; set; }
+
+        public bool FailGetSpan { get; set; }
+
+        public bool FailAdvance { get; set; }
+
+        public override void Advance(int bytes)
+        {
+            if (FailAdvance)
+            {
+                // Part of the frame is committed before the pipe fails.
+                _inner.Advance(Math.Min(bytes, 3));
+                throw new IOException("The pipe failed in Advance.");
+            }
+
+            _inner.Advance(bytes);
+        }
+
+        public override void CancelPendingFlush() => _inner.CancelPendingFlush();
+
+        public override void Complete(Exception? exception = null) => _inner.Complete(exception);
+
+        public override ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default) => _inner.FlushAsync(cancellationToken);
+
+        public override Memory<byte> GetMemory(int sizeHint = 0)
+        {
+            Trap();
+            return _inner.GetMemory(sizeHint);
+        }
+
+        public override Span<byte> GetSpan(int sizeHint = 0)
+        {
+            Trap();
+            return _inner.GetSpan(sizeHint);
+        }
+
+        private void Trap()
+        {
+            if (FailGetSpan)
+            {
+                throw new IOException("The pipe failed in GetSpan.");
+            }
+
+            if (BlockNextGetSpan)
+            {
+                BlockNextGetSpan = false;
+                Entered.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+        }
+    }
+
     public class StreamingTests
     {
         private const string Path = "/test.Stream/Call";
@@ -188,7 +255,8 @@ namespace GrpcNet.Tests
             requestPipe.Writer.Complete();
 
             var record = new SinkRecord();
-            await processor.ProcessAsync(new CallHead(processor.Resolve(System.Text.Encoding.UTF8.GetBytes(path)), deadline, state), requestPipe.Reader, responsePipe.Writer, new SharedSink(record));
+            await processor.ProcessAsync(new CallHead(processor.Resolve(System.Text.Encoding.UTF8.GetBytes(path)), deadline, state), requestPipe.Reader, responsePipe.Writer, new SharedSink(record))
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(30));
 
             // The host's part: flush what the core left buffered and end the response.
             await responsePipe.Writer.FlushAsync();
@@ -648,6 +716,163 @@ namespace GrpcNet.Tests
             Assert.That(refused, Is.True);
             Assert.That(outcome.Status.Code, Is.EqualTo(StatusCode.OK));
             Assert.That(outcome.Responses.Select(Int), Is.EqualTo(new[] { 1, 2 }));
+        }
+
+        [Test]
+        public async Task WriteFromAnotherThreadDuringAWriteIsRefused()
+        {
+            bool refused = false;
+            TrappedWriter? trapped = null;
+            GrpcProcessor processor = Build(b => b.AddServerStreaming<int, int, IntCodec, IntCodec>(Path, default, default, async (x, writer, ct) =>
+            {
+                trapped!.BlockNextGetSpan = true;
+                Task first = Task.Run(() => writer.WriteAsync(1).AsTask());
+                Assert.That(trapped.Entered.Wait(TimeSpan.FromSeconds(10)), Is.True, "the first write is inside GetSpan");
+                try
+                {
+                    await writer.WriteAsync(2);
+                }
+                catch (InvalidOperationException)
+                {
+                    refused = true;
+                }
+
+                trapped.Release.Set();
+                await first;
+                await writer.WriteAsync(3);
+            }));
+
+            var requestPipe = new Pipe();
+            var responsePipe = new Pipe();
+            trapped = new TrappedWriter(responsePipe.Writer);
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(0));
+            requestPipe.Writer.Complete();
+            var record = new SinkRecord();
+            await processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, trapped, new SharedSink(record));
+            await responsePipe.Writer.FlushAsync();
+            responsePipe.Writer.Complete();
+
+            Assert.That(refused, Is.True);
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.OK));
+            Assert.That((await ReadFramesAsync(responsePipe.Reader)).Select(Int), Is.EqualTo(new[] { 1, 3 }));
+        }
+
+        [Test]
+        public async Task OverlappingReadsAreRefused()
+        {
+            bool refused = false;
+            GrpcProcessor processor = Build(b => b.AddDuplex<int, int, IntCodec, IntCodec>(Path, default, default, async (reader, writer, ct) =>
+            {
+                ValueTask<bool> first = reader.MoveNextAsync();
+                Assert.That(first.IsCompleted, Is.False, "nothing has been sent yet");
+                try
+                {
+                    await reader.MoveNextAsync();
+                }
+                catch (InvalidOperationException)
+                {
+                    refused = true;
+                }
+
+                Assert.That(await first, Is.True);
+                await writer.WriteAsync(reader.Current);
+                Assert.That(await reader.MoveNextAsync(), Is.False);
+            }));
+
+            var requestPipe = new Pipe();
+            var responsePipe = new Pipe();
+            var record = new SinkRecord();
+            Task call = processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, responsePipe.Writer, new SharedSink(record)).AsTask();
+            await Task.Delay(20);
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(4));
+            requestPipe.Writer.Complete();
+            await call;
+
+            Assert.That(refused, Is.True);
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.OK));
+        }
+
+        private static GrpcProcessor SwallowingDuplex(Action<Exception> seen) => Build(b => b.AddDuplex<int, int, IntCodec, IntCodec>(Path, default, default, async (reader, writer, ct) =>
+        {
+            try
+            {
+                while (await reader.MoveNextAsync())
+                {
+                    await writer.WriteAsync(reader.Current);
+                }
+            }
+            catch (Exception ex)
+            {
+                seen(ex);
+            }
+        }));
+
+        [Test]
+        public async Task RequestPipeFailureEndsTheCallInternalEvenWhenSwallowed()
+        {
+            // Failed before the call starts: the first read finds it.
+            Exception? seen = null;
+            GrpcProcessor processor = SwallowingDuplex(ex => seen = ex);
+            var requestPipe = new Pipe();
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(1));
+            requestPipe.Writer.Complete(new IOException("The client reset the stream."));
+            var record = new SinkRecord();
+            await processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, new Pipe().Writer, new SharedSink(record));
+            Assert.That(seen, Is.InstanceOf<IOException>());
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.Internal));
+
+            // Failed while a read is pending.
+            seen = null;
+            requestPipe = new Pipe();
+            record = new SinkRecord();
+            Task call = processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, new Pipe().Writer, new SharedSink(record)).AsTask();
+            await Task.Delay(20);
+            requestPipe.Writer.Complete(new IOException("The client reset the stream."));
+            await call;
+            Assert.That(seen, Is.InstanceOf<IOException>());
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.Internal));
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task ResponsePipeFailureEndsTheCallInternalEvenWhenSwallowed(bool failInAdvance)
+        {
+            Exception? seen = null;
+            GrpcProcessor processor = SwallowingDuplex(ex => seen = ex);
+            var requestPipe = new Pipe();
+            await requestPipe.Writer.WriteAsync(Concat(Frames.IntFrame(1), Frames.IntFrame(2)));
+            requestPipe.Writer.Complete();
+            var trapped = new TrappedWriter(new Pipe().Writer) { FailGetSpan = !failInAdvance, FailAdvance = failInAdvance };
+            var record = new SinkRecord();
+
+            await processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, trapped, new SharedSink(record));
+
+            Assert.That(seen, Is.InstanceOf<IOException>());
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.Internal));
+        }
+
+        [Test]
+        public async Task ReadLeftPendingAtTheEndOfACallIsNotReused()
+        {
+            GrpcProcessor processor = Build(b => b.AddDuplex<int, int, IntCodec, IntCodec>(Path, default, default, (reader, writer, ct) =>
+            {
+                _ = reader.MoveNextAsync();
+                return default;
+            }));
+
+            var state = new TestCallState();
+            var requestPipe = new Pipe();
+            var record = new SinkRecord();
+            await processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8), 0, state), requestPipe.Reader, new Pipe().Writer, new SharedSink(record));
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.OK));
+            Assert.That(state.ReaderCache, Is.Null, "a reader with a read in flight is dropped");
+
+            // The abandoned read completes later without disturbing anything.
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(1));
+            requestPipe.Writer.Complete();
+            await Task.Delay(20);
+            Outcome next = await RunAsync(processor, Array.Empty<byte>(), state);
+            Assert.That(next.Status.Code, Is.EqualTo(StatusCode.OK));
         }
 
         [TestCase(HostPolicy.ThrowSync)]

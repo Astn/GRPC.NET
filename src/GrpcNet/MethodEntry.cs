@@ -94,7 +94,9 @@ namespace GrpcNet
             GrpcStatus status = Terminal(reader.Latch, in head, in handled);
             reader.End();
             writer.End();
-            if (state != null)
+
+            // A reader or writer still busy with an operation the handler never awaited is not reused.
+            if (state != null && reader.IsIdle && writer.IsIdle)
             {
                 state.ReaderCache = reader;
                 state.WriterCache = writer;
