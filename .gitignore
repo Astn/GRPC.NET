@@ -1,0 +1,19 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.nupkg
+*.snupkg
+
+# Test and benchmark output
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.trx
+coverage*.xml
+
+# IDE and tool state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
