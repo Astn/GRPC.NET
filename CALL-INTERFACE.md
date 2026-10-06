@@ -91,7 +91,7 @@ The wire does not say which kind a call is; the method's definition does. So the
 
 - **Unary first.** Most gRPC traffic is unary, so the fast path must avoid async state machines, queues and per-call allocation.
 - **No `System.Threading.Channels` on the hot path.** A channel costs a queue operation and synchronization per message. Byte pipes with framing parsed in place are cheaper, and the typed reader and writer are a thin layer over the pipe.
-- **Batched writes.** Response messages for many calls should leave in as few socket writes as possible. JSON-RPC.NET's TCP handler flushes once per read group; the HTTP/2 hosts should do the same across streams.
+- **Batched writes.** Response messages for many calls should leave in as few socket writes as possible. JSON-RPC.NET's TCP handler flushes once per read group; the HTTP/2 hosts should do the same across streams. See [RESEARCH-MEMORY.md R7](RESEARCH-MEMORY.md#r7-batch-writes-per-pass-keep-epochs-to-synchronous-shared-state) for a flush policy and a lock-free send path a built-in host could use.
 - **Cheap errors.** A failure before the first response message uses a trailers-only response.
 - **Metadata as views.** Request metadata is read in place from the host's decoded headers, not copied into a dictionary per call.
 
@@ -117,7 +117,7 @@ grpc-dotnet gives methods the same split: `IAsyncStreamReader<T>` and `IServerSt
 2. **Deadline enforcement.** JSON-RPC.NET leaves deadlines to the host. gRPC carries the deadline in the protocol, so the core may need to enforce it, or at least link it into the cancellation token.
 3. **Compression.** Whether the first release supports `grpc-encoding`, and where decompression happens.
 4. **Pre-split messages.** Whether a host such as an in-process transport can hand the core messages that are already split, and skip the 5-byte framing.
-5. **Backpressure.** How a slow reader on one stream limits a fast writer without stalling other streams on the same connection.
+5. **Backpressure.** How a slow reader on one stream limits a fast writer without stalling other streams on the same connection. Garnet's host blocks the network thread once 8 sends are outstanding; GRPC.NET runs user code that awaits, so its backpressure must be asynchronous ([research/memory/faster-tsavorite.md](research/memory/faster-tsavorite.md) §8.4).
 6. **Status mapping.** How exceptions map to gRPC status codes and rich status details.
 7. **Interceptors.** Whether cross-cutting hooks exist, and where they sit relative to the fast path.
 8. **Request body type for `Process`.** [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md#r1-accept-the-request-body-as-a-sequence-and-decode-from-a-span) recommends `in ReadOnlySequence<byte>` instead of `ReadOnlySpan<byte>`, so that hosts need not copy bodies that span several pool blocks.

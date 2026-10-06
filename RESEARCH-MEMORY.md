@@ -91,7 +91,7 @@ The parse and write contexts are internal, and a request to make them public was
 Any library hosted on Kestrel pays these costs for each call:
 
 - **Two copies of the payload.** Request bytes are copied from the socket pipe into a per-stream pipe. Response bytes are copied from a per-stream pipe into the connection pipe.
-- **A thread-pool hop.** Each stream is dispatched to the thread pool.
+- **A thread-pool hop.** Each stream is dispatched to the thread pool. This cannot be configured away. The inline path in `Http2Connection` is used only in tests, and its comment says app code must not block the connection loop ([Http2Connection.cs#L1380-L1389](https://github.com/dotnet/aspnetcore/blob/1c9384556239e201511cadf5ced0bf3f753a98ab/src/Servers/Kestrel/Core/src/Internal/Http2/Http2Connection.cs#L1380-L1389)). The socket transport's `UnsafePreferInlineScheduling` option changes only the transport's pipe schedulers, not this dispatch.
 - **A channel hand-off.** Each response goes through a channel to the connection's writer loop.
 - **Header work.** HPACK decoding, plus a new string for every custom metadata value and every `grpc-timeout` value that changes.
 
@@ -114,13 +114,23 @@ grpc-dotnet adds further costs that GRPC.NET's design does not need:
   - It receives into one contiguous, growable, pinned 128 KiB buffer per connection.
   - It parses requests in place on the receive thread.
   - It writes every response for one receive into one pooled pinned buffer, then sends it once.
-  - CI expects 0 bytes allocated through the network path.
-- **Thread hand-offs cost an order of magnitude.** Garnet's design study measured 47 Mops/s when work stays on the receive thread, against 1.3 to 17.1 Mops/s for designs that lock, hand off or shard ([Garnet, PVLDB 2025, §8.5](https://www.vldb.org/pvldb/vol19/p224-chandramouli.pdf)).
+  - CI expects 0 bytes allocated through the network path, measured by driving an in-process handler with no real socket.
+- **Keeping work on the receive thread paid off by an order of magnitude.** Garnet's design study ([Garnet, PVLDB 2025, §8.5](https://www.vldb.org/pvldb/vol19/p224-chandramouli.pdf)) compared five designs on the same workload:
+
+  | Design | Throughput |
+  | --- | --- |
+  | Work stays on the receive thread | 47 Mops/s |
+  | Network threads hand requests to storage workers | 4.4 to 9 Mops/s |
+  | Separate processes | 17.1 Mops/s |
+  | One lock around the store | 1.3 Mops/s |
+
+  The hand-offs measured were to storage workers, in batches of 1,024 commands. That is not the same thing as Kestrel's per-stream dispatch, so the size of Kestrel's hop cost is still to be measured.
 - **Cautions.**
   - RESP, the protocol Garnet speaks, is pipelined and not multiplexed, so it is far simpler than HTTP/2.
   - Garnet blocks threads on TLS, on its send throttle and on accept backoff.
   - Every headline figure relies on deep client pipelining.
   - No source compares Garnet's host with Kestrel.
+  - Running inline is safe for Garnet because it runs only its own short command handlers. A gRPC host that runs user methods inline lets one slow method stall every other stream on its connection. That is the reason Kestrel gives for always dispatching.
 
 ## Recommendations for the design review
 
@@ -201,6 +211,7 @@ No shipping `Utf8String` type exists. Tsavorite and Garnet never turn keys into 
   - header encoding serialized under a lock, or done without HPACK's dynamic table;
   - flow-control windows checked before reserving, so that a blocked stream never holds the tail;
   - a measurement of tail contention.
+- **Inline execution in a built-in host.** The synchronous unary fast path (`Process`) is what would let a built-in host run calls on the receive thread, as Garnet does. Async methods need a hand-off anyway. To avoid one slow method stalling the connection, inline execution should be limited to methods that opt in or are marked short, and the cost of stalls should be measured with a deliberately slow method.
 - **Epochs.** Use them, if anywhere, for rarely written shared state such as the method table. Never use them for buffers that cross an `await`.
 - **What not to borrow.** Raw pointers as the general programming model, blocking waits on I/O threads, fixed process-wide limits, and zeroing every returned buffer.
 
@@ -213,6 +224,7 @@ The protobuf note lists ten controls. The essentials:
 - **Same host.** The same Kestrel version, transport options and HTTP/2 limits, and the grpc-dotnet service registered as a singleton.
 - **Same features.** Compression, deadlines, interceptors, logging and tracing match on both sides.
 - **Separate load generator.** An out-of-process load generator on separate cores, with fixed connection and stream counts, including a run with one stream per connection.
+- **Calls in flight.** Report the depth: 1 call in flight per connection, and 256 as in the README baselines. FASTER, Garnet and Shadowfax publish their headline figures only with deep client pipelining, so a figure at one depth must not be compared with one at another.
 - **Allocation reporting.** Bytes allocated per call and GC counts, not only requests per second, plus a Kestrel floor measured with an endpoint that returns a fixed response.
 - **Allocation gate in CI.** Fail a build when allocated bytes per call exceed the expected value, as Garnet's CI does with a 10% margin.
 - **Warmup and tiering.** A fixed warmup and the same tiering settings on both sides. Cold Tier-0 code inverts serializer rankings, as JSON-RPC.NET's serializer work found.
@@ -222,6 +234,6 @@ The protobuf note lists ten controls. The essentials:
 1. **`Process` input type.** `ReadOnlySequence<byte>` per R1, or the current `ReadOnlySpan<byte>`.
 2. **Message ownership model.** R3: owned by default, ref struct views as an opt-in, and leased `bytes` fields.
 3. **Codec seam shape and staging.** R5.
-4. **Where per-thread scratch lives.** Whether the core keeps per-thread scratch like JSON-RPC.NET's, and its retention cap.
-5. **Hand-off cost under Kestrel.** Before any work on a built-in host, measure the core behind Kestrel against the core behind a minimal socket host that processes inline and flushes once per pass. Run with 1 and 256 calls in flight per connection, and report allocated bytes per call. This repeats Garnet's design study for our case.
+4. **Where per-thread scratch lives.** Whether the core keeps per-thread scratch like JSON-RPC.NET's, and how retained memory is bounded: a cap per buffer, as JSON-RPC.NET's 64 KiB, or a process-wide byte budget, as Garnet's buffer pool enforces.
+5. **Hand-off cost under Kestrel.** Before any work on a built-in host, measure the core behind Kestrel against the core behind a minimal socket host that processes inline and flushes once per pass. Run with 1 and 256 calls in flight per connection, and report allocated bytes per call. Add a Kestrel run with `UnsafePreferInlineScheduling`, which shows how much of the gap the transport hop accounts for, and a run with one deliberately slow method, which shows the stall cost of running inline. This repeats Garnet's design study for our case.
 6. **Flush policy.** R7: flush at the end of each read pass, with a byte or time threshold for responses that complete outside one.

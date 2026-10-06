@@ -41,7 +41,7 @@ The gRPC rows include the .NET client, which ran on the same cores as the server
 4. **Call types.** These are unary, server streaming, client streaming and bidirectional streaming. The first release needs a subset of them.
 5. **gRPC features.** These include deadlines, metadata, compression, rich status details, health checking and reflection, each to be supported or deferred.
 6. **Interoperability.** Conformance could be proven against gRPC's interop test suite and against standard clients.
-7. **Benchmarks.** "Faster than JSON-RPC.NET" needs a definition. Unary gRPC carries HTTP/2 headers and trailers on every call, which the raw TCP path does not. Unary calls and streams may therefore need separate targets, and the throughput of gRPC for .NET is a second baseline. The same benchmarks decide whether a built-in hosting mode earns its place, measuring the core alone, the core behind Kestrel, and any candidate built-in host.
+7. **Benchmarks.** "Faster than JSON-RPC.NET" needs a definition. Unary gRPC carries HTTP/2 headers and trailers on every call, which the raw TCP path does not. Unary calls and streams may therefore need separate targets, and the throughput of gRPC for .NET is a second baseline. The same benchmarks decide whether a built-in hosting mode earns its place, measuring the core alone, the core behind Kestrel, and any candidate built-in host. [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md#questions-this-adds-to-the-design-review) question 5 describes the hand-off measurement that should come before any built-in host work.
 8. **Targets.** The target frameworks are open, as is whether Native AOT and trimming are supported from the start.
 
 ## License
