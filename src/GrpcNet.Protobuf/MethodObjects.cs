@@ -102,7 +102,13 @@ namespace GrpcNet.Protobuf
         public ServerStreamingMethod(FileDescriptor file, string serviceFullName, string methodName)
             : base(file, serviceFullName, methodName, MethodKind.ServerStreaming, typeof(TRequest), typeof(TResponse))
         {
+            RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
+            ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
         }
+
+        internal ProtobufCodec<TRequest> RequestCodec { get; }
+
+        internal ProtobufCodec<TResponse> ResponseCodec { get; }
     }
 
     /// <summary>A client-streaming method: a stream of requests, one response.</summary>
@@ -114,7 +120,13 @@ namespace GrpcNet.Protobuf
         public ClientStreamingMethod(FileDescriptor file, string serviceFullName, string methodName)
             : base(file, serviceFullName, methodName, MethodKind.ClientStreaming, typeof(TRequest), typeof(TResponse))
         {
+            RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
+            ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
         }
+
+        internal ProtobufCodec<TRequest> RequestCodec { get; }
+
+        internal ProtobufCodec<TResponse> ResponseCodec { get; }
     }
 
     /// <summary>A bidirectional streaming method.</summary>
@@ -126,6 +138,12 @@ namespace GrpcNet.Protobuf
         public DuplexMethod(FileDescriptor file, string serviceFullName, string methodName)
             : base(file, serviceFullName, methodName, MethodKind.DuplexStreaming, typeof(TRequest), typeof(TResponse))
         {
+            RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
+            ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
         }
+
+        internal ProtobufCodec<TRequest> RequestCodec { get; }
+
+        internal ProtobufCodec<TResponse> ResponseCodec { get; }
     }
 }

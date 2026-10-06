@@ -110,6 +110,57 @@ namespace GrpcNet.Protobuf.Tests
             Assert.That(output, Is.Empty);
         }
 
+        [Test]
+        public async System.Threading.Tasks.Task TypedServerStreamingAndAsyncUnaryBindingsRunThroughProcessAsync()
+        {
+            GrpcProcessor processor = new GrpcProcessorBuilder()
+                .Bind(Calculator.Watch, async (request, responses, ct) =>
+                {
+                    for (int i = 0; i < request.A; i++)
+                    {
+                        await responses.WriteAsync(new Scalar { A = i });
+                    }
+                })
+                .Bind(Calculator.Add, async (request, ct) =>
+                {
+                    await System.Threading.Tasks.Task.Yield();
+                    return new Scalar { A = request.A + (int)request.B };
+                })
+                .Build();
+
+            Assert.That(await CallAsync(processor, Calculator.Watch, new Scalar { A = 3 }), Is.EqualTo(new[] { 0, 1, 2 }));
+            Assert.That(await CallAsync(processor, Calculator.Add, new Scalar { A = 40, B = 2 }), Is.EqualTo(new[] { 42 }));
+        }
+
+        private static async System.Threading.Tasks.Task<int[]> CallAsync(GrpcProcessor processor, GrpcMethod method, Scalar request)
+        {
+            var requestPipe = new System.IO.Pipelines.Pipe();
+            var responsePipe = new System.IO.Pipelines.Pipe();
+            await requestPipe.Writer.WriteAsync(Frame(request.ToByteArray()));
+            requestPipe.Writer.Complete();
+            await processor.ProcessAsync(new CallHead(processor.Resolve(method.PathUtf8.Span)), requestPipe.Reader, responsePipe.Writer, new NullSink());
+            await responsePipe.Writer.FlushAsync();
+            responsePipe.Writer.Complete();
+
+            System.IO.Pipelines.ReadResult result = await responsePipe.Reader.ReadAsync();
+            while (!result.IsCompleted)
+            {
+                responsePipe.Reader.AdvanceTo(result.Buffer.Start, result.Buffer.End);
+                result = await responsePipe.Reader.ReadAsync();
+            }
+
+            byte[] bytes = result.Buffer.ToArray();
+            var values = new List<int>();
+            for (int offset = 0; offset < bytes.Length;)
+            {
+                MessageFraming.TryReadPrefix(bytes.AsSpan(offset), out _, out uint length);
+                values.Add(Scalar.Parser.ParseFrom(bytes.AsSpan(offset + 5, (int)length)).A);
+                offset += 5 + (int)length;
+            }
+
+            return values.ToArray();
+        }
+
         private static IEnumerable<TestCaseData> Shapes()
         {
             yield return new TestCaseData(new Scalar { A = -1, B = long.MaxValue, C = Math.PI, D = true, E = 7 }).SetName("scalar");
@@ -380,7 +431,7 @@ namespace GrpcNet.Protobuf.Tests
         public void RejectedBindLeavesNoServiceRegistration()
         {
             var builder = new GrpcProcessorBuilder();
-            Assert.Throws<ArgumentNullException>(() => builder.Bind(Calculator.Add, null!));
+            Assert.Throws<ArgumentNullException>(() => builder.Bind(Calculator.Add, (Func<Scalar, Scalar>)null!));
 
             // Had the failed Bind registered test.Calculator, this wrong-typed raw binding would be reported.
             builder.AddUnary<Blob, Blob, ProtobufCodec<Blob>, ProtobufCodec<Blob>>("/test.Calculator/Add", Codec(Blob.Parser), Codec(Blob.Parser), r => r);

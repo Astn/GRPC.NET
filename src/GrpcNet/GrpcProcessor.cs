@@ -2,6 +2,10 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace GrpcNet
 {
@@ -14,15 +18,7 @@ namespace GrpcNet
     /// </summary>
     public sealed class GrpcProcessor
     {
-        // Provisional: the per-thread scratch keeps at most this much between calls (JSON-RPC.NET's cap). CALL-INTERFACE.md
-        // lists scratch retention as still open.
-        internal const int RetainedScratchLimit = 64 * 1024;
-
-        [ThreadStatic]
-        private static byte[]? t_scratch;
-
-        [ThreadStatic]
-        private static bool t_scratchInUse;
+        internal const int RetainedScratchLimit = PayloadScratch.RetainedLimit;
 
         private readonly MethodTable _methods;
         private readonly GrpcProcessorOptions _options;
@@ -41,6 +37,43 @@ namespace GrpcNet
         {
             MethodEntry entry = _methods.Get(method) ?? throw new ArgumentException("Unknown method.", nameof(method));
             return entry.Kind;
+        }
+
+        /// <summary>
+        /// Whether the method is unary with a synchronous handler. A host that has the whole request body runs such a method
+        /// with <c>Process</c>; every other method runs with <c>ProcessAsync</c>.
+        /// </summary>
+        public bool IsSynchronousUnary(MethodId method) => _methods.Get(method)?.IsSynchronousUnary ?? false;
+
+        /// <summary>
+        /// Runs any call over the request and response pipes: streaming calls, asynchronous methods, and unary calls whose
+        /// body has not fully arrived. Completes <paramref name="sink"/> exactly once, with the call's one terminal status.
+        /// The core never flushes <paramref name="responseBody"/>; after each response message it calls the host's
+        /// <see cref="HostCallState.OnMessageWritten"/>. The host owns both pipes and completes them after the call.
+        /// </summary>
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+        public async ValueTask ProcessAsync<TSink>(CallHead head, PipeReader requestBody, PipeWriter responseBody, TSink sink)
+            where TSink : struct, ICallSink
+        {
+            if (requestBody == null) throw new ArgumentNullException(nameof(requestBody));
+            if (responseBody == null) throw new ArgumentNullException(nameof(responseBody));
+
+            GrpcStatus status;
+            MethodEntry? entry = _methods.Get(head.Method);
+            if (entry == null)
+            {
+                status = new GrpcStatus(StatusCode.Unimplemented);
+            }
+            else if (head.IsPastDeadline)
+            {
+                status = new GrpcStatus(StatusCode.DeadlineExceeded);
+            }
+            else
+            {
+                status = await entry.InvokeAsync(head, requestBody, responseBody, _options).ConfigureAwait(false);
+            }
+
+            sink.Complete(in status, default);
         }
 
         /// <summary>
@@ -124,19 +157,7 @@ namespace GrpcNet
             int size = (int)length;
             ReadOnlySequence<byte> payload = body.Slice(MessageFraming.PrefixLength, size);
 
-            byte[]? rented = null;
-            byte[] buffer;
-            bool usingScratch = !t_scratchInUse && size <= RetainedScratchLimit;
-            if (usingScratch)
-            {
-                buffer = t_scratch ??= new byte[RetainedScratchLimit];
-                t_scratchInUse = true;
-            }
-            else
-            {
-                buffer = rented = ArrayPool<byte>.Shared.Rent(size);
-            }
-
+            byte[] buffer = PayloadScratch.Acquire(size, out bool rented);
             try
             {
                 payload.CopyTo(buffer);
@@ -144,23 +165,16 @@ namespace GrpcNet
             }
             finally
             {
-                if (usingScratch)
-                {
-                    t_scratchInUse = false;
-                }
-                else
-                {
-                    ArrayPool<byte>.Shared.Return(rented!);
-                }
+                PayloadScratch.Release(buffer, rented);
             }
         }
 
         // The call is checked before its body, so an expired call ends with DEADLINE_EXCEEDED whatever the body holds.
         private GrpcStatus CheckCall(MethodEntry entry, in CallHead head)
         {
-            if (entry.Kind != MethodKind.Unary)
+            if (!entry.IsSynchronousUnary)
             {
-                return Malformed("The method is not unary; the host must use the streaming path.");
+                return Malformed("The method is not synchronous unary; the host must use ProcessAsync.");
             }
 
             return head.IsPastDeadline ? new GrpcStatus(StatusCode.DeadlineExceeded) : GrpcStatus.Ok;
@@ -250,14 +264,63 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
+            Reserve(path, handler);
+            return Add(new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
+        /// <summary>Registers a unary method with an asynchronous handler. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddAsyncUnary<TRequest, TResponse, TRequestCodec, TResponseCodec>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, CancellationToken, ValueTask<TResponse>> handler, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+        {
+            Reserve(path, handler);
+            return Add(new AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
+        /// <summary>Registers a server-streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddServerStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, MessageWriter<TResponse>, CancellationToken, ValueTask> handler, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+        {
+            Reserve(path, handler);
+            return Add(new ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
+        /// <summary>Registers a client-streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddClientStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<MessageReader<TRequest>, CancellationToken, ValueTask<TResponse>> handler, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+        {
+            Reserve(path, handler);
+            return Add(new ClientStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
+        /// <summary>Registers a bidirectional streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddDuplex<TRequest, TResponse, TRequestCodec, TResponseCodec>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<MessageReader<TRequest>, MessageWriter<TResponse>, CancellationToken, ValueTask> handler, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+        {
+            Reserve(path, handler);
+            return Add(new DuplexEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
+        // Validates a registration before anything changes, so a rejected one leaves the builder as it was.
+        private void Reserve(string path, Delegate handler)
+        {
             ValidatePath(path);
             if (handler == null) throw new ArgumentNullException(nameof(handler));
             if (!_paths.Add(path))
             {
                 throw new InvalidOperationException("The method '" + path + "' is bound more than once.");
             }
+        }
 
-            var entry = new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract);
+        private GrpcProcessorBuilder Add(MethodEntry entry)
+        {
             _entries.Add(entry);
             _bindings.Add(entry.Binding);
             return this;

@@ -8,10 +8,12 @@ namespace GrpcNet
         /// <summary>Creates a call head.</summary>
         /// <param name="method">The method, from <see cref="GrpcProcessor.Resolve"/> or a route bound at registration.</param>
         /// <param name="deadlineTicks">The absolute deadline on the <see cref="Environment.TickCount64"/> scale (milliseconds), or 0 for none.</param>
-        public CallHead(MethodId method, long deadlineTicks = 0)
+        /// <param name="state">The host's per-stream state, or null. Synchronous unary calls do not need it.</param>
+        public CallHead(MethodId method, long deadlineTicks = 0, HostCallState? state = null)
         {
             Method = method;
             DeadlineTicks = deadlineTicks;
+            State = state;
         }
 
         /// <summary>The method being called.</summary>
@@ -20,8 +22,13 @@ namespace GrpcNet
         /// <summary>The absolute deadline on the <see cref="Environment.TickCount64"/> scale, or 0 when the call has none.</summary>
         public long DeadlineTicks { get; }
 
+        /// <summary>The host's per-stream state, or null.</summary>
+        public HostCallState? State { get; }
+
         /// <summary>Whether the deadline has passed. False when the call has no deadline.</summary>
         public bool IsPastDeadline => DeadlineTicks != 0 && Environment.TickCount64 >= DeadlineTicks;
+
+        internal System.Threading.CancellationToken Cancellation => State?.Cancellation ?? default;
     }
 
     /// <summary>Identifies a method in a <see cref="GrpcProcessor"/>'s method table.</summary>

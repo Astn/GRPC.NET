@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 
@@ -19,17 +21,65 @@ namespace GrpcNet.Protobuf
             where TRequest : class, IMessage<TRequest>
             where TResponse : class, IMessage<TResponse>
         {
+            Preflight(builder, method);
+            builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds an asynchronous <paramref name="handler"/> to the unary <paramref name="method"/>.</summary>
+        public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, Func<TRequest, CancellationToken, ValueTask<TResponse>> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            Preflight(builder, method);
+            builder.AddAsyncUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds <paramref name="handler"/> to the server-streaming <paramref name="method"/>.</summary>
+        public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, ServerStreamingMethod<TRequest, TResponse> method, Func<TRequest, MessageWriter<TResponse>, CancellationToken, ValueTask> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            Preflight(builder, method);
+            builder.AddServerStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds <paramref name="handler"/> to the client-streaming <paramref name="method"/>.</summary>
+        public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, ClientStreamingMethod<TRequest, TResponse> method, Func<MessageReader<TRequest>, CancellationToken, ValueTask<TResponse>> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            Preflight(builder, method);
+            builder.AddClientStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds <paramref name="handler"/> to the bidirectional streaming <paramref name="method"/>.</summary>
+        public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, DuplexMethod<TRequest, TResponse> method, Func<MessageReader<TRequest>, MessageWriter<TResponse>, CancellationToken, ValueTask> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            Preflight(builder, method);
+            builder.AddDuplex<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        // Everything that can reject a Bind is checked before the builder changes, so a rejected Bind leaves nothing behind.
+        private static void Preflight(GrpcProcessorBuilder builder, GrpcMethod method)
+        {
             if (builder == null) throw new ArgumentNullException(nameof(builder));
             if (method == null) throw new ArgumentNullException(nameof(method));
-            // Everything that can reject the Bind is checked before the builder changes, so a rejected Bind leaves nothing behind.
             if (s_registries.TryGetValue(builder, out ServiceRegistry? registry))
             {
                 registry.ThrowIfConflicting(method.Descriptor.Service);
             }
-
-            builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
-            return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
         /// <summary>

@@ -44,7 +44,16 @@ public readonly struct CallHead
 {
     public MethodId Method { get; }            // from Resolve, or bound at registration on Kestrel
     public long DeadlineTicks { get; }         // absolute, monotonic (Environment.TickCount64 scale); 0 = none
-    public HostCallState State { get; }        // host-owned handle: metadata, cancellation state, stream identity
+    public HostCallState? State { get; }       // host-owned, pooled per stream: cancellation, the write hook, reader/writer reuse
+}
+
+// Implemented by each host, pooled with its streams. Null for a synchronous unary call.
+public abstract class HostCallState
+{
+    public abstract CancellationToken Cancellation { get; }
+    // Called on the writing thread after each response message is advanced. The host flushes, keeps buffering, or
+    // returns a pending task until its own count of bytes actually sent is under its per-stream bound.
+    protected abstract ValueTask OnMessageWritten(PipeWriter output, int framedBytes);
 }
 
 public readonly struct GrpcStatus
@@ -134,6 +143,8 @@ output.Advance(5 + size)
 
 No byte or message thresholds are fixed in advance; a sweep (immediate, pass end, 16, 32 and 64 KiB) decides them, gated by no p99 regression at equal offered load. Unary calls on Kestrel never call `FlushAsync`: the response completes, and Kestrel's frame writer emits HEADERS, DATA and trailers in one pass.
 
+For streams the host makes these decisions in `OnMessageWritten`, which the core calls on the writing thread after each response message. A `PipeWriter` is not thread-safe, so a flush must happen in a turn that owns the writer; that hook is such a turn, and it keeps every flush decision in host code. It is also where the host applies its per-stream bound on pending bytes, counted as bytes actually sent: `UnflushedBytes` cannot measure that, and not every writer supports it.
+
 **Batching across streams.**
 
 - **Kestrel** already coalesces frames from all streams in its single frame-writer loop. GRPC.NET must not defeat it with a flush per message.
@@ -175,21 +186,26 @@ A `GrpcException` with a code and no message costs only the exception. grpc-dotn
 ## Streams
 
 ```csharp
-public sealed class MessageReader<T>
+// Handles for one call: each holds the call's stamp and throws once that call has ended,
+// even after the host has reused the underlying reader or writer for a later call.
+public readonly struct MessageReader<T>
 {
     public ValueTask<bool> MoveNextAsync();
-    public ref readonly T Current { get; }     // valid until the next MoveNextAsync
+    public ref readonly T Current { get; }     // an owned message: stays valid after later reads
 }
 
-public sealed class MessageWriter<T>
+public readonly struct MessageWriter<T>
 {
-    public ValueTask WriteAsync(in T message);  // sizes, encodes and advances; never flushes
+    public ValueTask WriteAsync(in T message);  // sizes, encodes, advances, then calls the host's OnMessageWritten; never flushes
 }
 ```
 
-- One reader and one writer per stream, pooled per connection along with the stream. Each implements `IValueTaskSource`, so a call that completes synchronously allocates nothing. At deep pipelining that is the common case, because the next message is usually already buffered.
+- One reader and one writer per stream, kept in the host's `HostCallState` and reused by the next call on that stream when the method's message and codec types match. A synchronous read completes without allocating. The reader implements `IValueTaskSource` for the pending path. The writer has no task source of its own: it waits only on the host's `OnMessageWritten`, and returns that task. Without a `HostCallState`, the reader and writer are allocated per call. E0 reports the pooled, the unpooled and a mixed-method row.
 - No `System.Threading.Channels` and no `Channel<T>` per call.
-- The reader advances the pipe past a message only on the next `MoveNextAsync`. Owned messages survive an `await`.
+- **Advancing.** Messages are owned in milestone 1, so the reader advances the pipe as soon as a message is decoded, which returns flow-control credit early. The borrowed views that come with the generated codec will need the bytes until the next `MoveNextAsync`, and will advance only then.
+- **Writes are sequential.** A `WriteAsync` started before the previous one completed throws; frames stay in order without a lock.
+- **Exactly one request.** For unary and server-streaming methods the core reads the request message and the end of the request stream before the handler runs. Zero or two messages end the call `INTERNAL`, and the handler never runs.
+- **Faults the handler cannot hide.** The core latches the first terminal fault of a call: a malformed or truncated frame, an unsupported compressed flag or an oversized message on the request stream; a deadline seen at a write; a codec failure; a failure of the host's `OnMessageWritten`. Later reads and writes rethrow it, and the call ends with it even if the handler catches the exception and returns. The call's one status is decided in this order: the latched fault; then a deadline or cancellation seen when the handler ends; then the handler's own outcome.
 - Borrowed views of streamed messages come with the generated codec, in a synchronous `OnMessage(in TView)` callback valid until it returns.
 
 **Backpressure** never blocks a thread.

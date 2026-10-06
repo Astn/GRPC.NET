@@ -6,9 +6,10 @@ namespace GrpcNet
     /// <summary>Writes one framed response message: size first, then the prefix and the message in one contiguous span.</summary>
     internal static class ResponseWriter
     {
-        internal static GrpcStatus Write<T, TCodec>(ref TCodec codec, in T message, IBufferWriter<byte> output, GrpcProcessorOptions options)
+        internal static GrpcStatus Write<T, TCodec>(ref TCodec codec, in T message, IBufferWriter<byte> output, GrpcProcessorOptions options, out int written)
             where TCodec : struct, IMessageCodec<T>
         {
+            written = 0;
             int size;
             try
             {
@@ -46,10 +47,13 @@ namespace GrpcNet
 
                 MessageFraming.WritePrefix(span, size);
                 output.Advance(framed);
+                written = framed;
                 return GrpcStatus.Ok;
             }
 
-            return WriteStaged(ref codec, in message, size, output, options);
+            GrpcStatus staged = WriteStaged(ref codec, in message, size, output, options);
+            written = staged.Code == StatusCode.OK ? framed : 0;
+            return staged;
         }
 
         private static GrpcStatus WriteStaged<T, TCodec>(ref TCodec codec, in T message, int size, IBufferWriter<byte> output, GrpcProcessorOptions options)
