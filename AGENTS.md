@@ -4,14 +4,14 @@
 
 Read these before proposing or changing anything in this repository:
 
-1. [README.md](README.md): the goals, the transport decisions, the baselines and the open design questions.
-2. [CALL-INTERFACE.md](CALL-INTERFACE.md): the draft call interface between hosts, the core and service methods.
+1. [README.md](README.md): the goals, the performance targets and stop floor, the transport decisions, the milestone 1 plan and the design questions.
+2. [CALL-INTERFACE.md](CALL-INTERFACE.md): the call interface between hosts, the core and service methods, as decided on 2026-10-06.
 
 If a change conflicts with either document, raise the conflict instead of working around it. When a design question is decided, record the decision in the document that holds the question.
 
 ## Reference material
 
-- [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md): research on buffers, arenas, zero-allocation marshalling and the FASTER/Garnet techniques, with recommendations for the open questions. Read it before working on the core's buffer handling, the codec or message types. Its source notes are in [research/memory](research/memory).
+- [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md): research on buffers, arenas, zero-allocation marshalling and the FASTER/Garnet techniques, with the recommendations the design review settled and the benchmark controls. Read it before working on the core's buffer handling, the codec or message types. Its source notes are in [research/memory](research/memory).
 
 ## Rules
 

@@ -1,6 +1,6 @@
 # Research: memory, buffers and zero-allocation marshalling
 
-**Status:** research of 2026-10-05, extended 2026-10-06 with FASTER, Tsavorite and Garnet. It informs the open questions in [README.md](README.md#open-design-questions) and [CALL-INTERFACE.md](CALL-INTERFACE.md#open-questions); it decides nothing. The recommendations below are inputs to the design review.
+**Status:** research of 2026-10-05, extended 2026-10-06 with FASTER, Tsavorite and Garnet, and with published gRPC server throughput (finding 8). The second design review of 2026-10-06 decided most of what follows. [What the design review decided](#what-the-design-review-decided) records which recommendations were accepted, changed or left as hypotheses, and the experiment that settles each. The decisions themselves are in [README.md](README.md#design-questions) and [CALL-INTERFACE.md](CALL-INTERFACE.md).
 
 This document summarizes four sets of notes. Each note pins every claim to a source file and line at a recorded commit, a documentation page or a paper, and marks its own inferences.
 
@@ -132,6 +132,28 @@ grpc-dotnet adds further costs that GRPC.NET's design does not need:
   - No source compares Garnet's host with Kestrel.
   - Running inline is safe for Garnet because it runs only its own short command handlers. A gRPC host that runs user methods inline lets one slow method stall every other stream on its connection. That is the reason Kestrel gives for always dispatching.
 
+### 8. Published gRPC server throughput: grpc-dotnet is fast for a general-purpose server, and purpose-built hosts are much faster
+
+- **grpc_bench** ([LesnyRumcajs/grpc_bench](https://github.com/LesnyRumcajs/grpc_bench), discussions 559, 441 and 547). grpc-dotnet ranks near the top of general-purpose servers per core, at about 85 k to 177 k unary calls per second per core. tonic and the C++ server are within 1.0× to 1.2× of it. Its multi-core rows are limited by the `ghz` client.
+- **HttpArena** ([MDA2AV/HttpArena](https://github.com/MDA2AV/HttpArena)) runs a 9-byte unary `GetSum` call on one 64-core Threadripper, driven by `h2load` with 256 connections × 100 streams.
+  - grpc-dotnet (.NET 10, Grpc.AspNetCore 2.71) did 2,491,232 calls per second on 56.2 CPUs, or 44 k per CPU.
+  - Four purpose-built servers did 6.8 M to 7.3 M on 14 to 28 CPUs, so 2.7× to 2.9× the throughput on 25% to 50% of the CPU. They were not CPU-saturated, so their limiter is unidentified.
+  - They also send more bytes per response than grpc-dotnet (63 to 133 B against 37 B), so they are not skipping parts of the response.
+- **HttpArena cautions.**
+  - Its Kestrel row is a GET with no body or trailers, so subtracting it from the gRPC row bounds nothing about grpc-dotnet's own layer.
+  - The same `h2load` setup reached 15.7 M on GET, so 7 M is not the client's ceiling.
+  - Its "p99" field holds `h2load`'s maximum.
+  - Its throughput counts HTTP 2xx only; `grpc-status` is checked only before the run.
+- **pajamax** ([WuBingzheng/pajamax](https://github.com/WuBingzheng/pajamax)) is a Rust server built only for gRPC. It runs one thread per connection, handles each call inline, and flushes once per read pass.
+  - Against tonic, it uses 3× to 10× less CPU per request at 100 to 1,000 calls in flight per connection, and 1.3× to 2.9× less at one.
+  - About 88% of its remaining CPU goes to send and receive system calls.
+  - It skips parts of HTTP/2 conformance, so it shows the shape of a fast host, not a conformant target.
+- **ioxide** ([MDA2AV/ioxide](https://github.com/MDA2AV/ioxide)) is a .NET runtime built on io_uring, with a thread per core, inline continuations and its own HTTP/2. GenHTTP on ioxide served HttpArena's h2c GET at 3.3× Kestrel's throughput per CPU. GenHTTP on Kestrel performs like Kestrel, so replacing only the socket layer under Kestrel's HTTP/2 does not help.
+- **How fast HTTP/2 servers batch writes.** grpc-go, gRPC C++ (chttp2), h2o, Rust `h2` and nghttp2 all have one writer per connection. That writer owns HPACK and the flow-control windows; streams only enqueue. It drains everything ready into one write, aiming for 32 to 128 KiB.
+- **Kestrel since .NET 7** has a single writer loop ([dotnet/aspnetcore#40925](https://github.com/dotnet/aspnetcore/pull/40925)). HPACK encoding still runs under a lock ([#41224](https://github.com/dotnet/aspnetcore/issues/41224), open), and the output channel is bounded.
+- **The error path.** grpc-dotnet served 494 k calls per second on success and 116 k when the handler threw ([grpc/grpc-dotnet#2033](https://github.com/grpc/grpc-dotnet/issues/2033)).
+- **Codec share.** At grpc-dotnet's speed, Google.Protobuf parsing is a few percent of a call. Its share grows on a fast host, on large fields and on streams. vtprotobuf's pooling made long streams 6.6× faster in Go.
+
 ## Recommendations for the design review
 
 These are the notes' inferences, reconciled where they disagreed.
@@ -215,6 +237,27 @@ No shipping `Utf8String` type exists. Tsavorite and Garnet never turn keys into 
 - **Epochs.** Use them, if anywhere, for rarely written shared state such as the method table. Never use them for buffers that cross an `await`.
 - **What not to borrow.** Raw pointers as the general programming model, blocking waits on I/O threads, fixed process-wide limits, and zeroing every returned buffer.
 
+## What the design review decided
+
+The second design review (2026-10-06) treated R1 to R7 as hypotheses. Its outcome:
+
+| Recommendation | Outcome | Settled by |
+| --- | --- | --- |
+| R1, request body as a sequence | **Changed:** a span primitive plus a sequence overload that only branches. The built-in host passes contiguous spans; Kestrel passes sequences. | E0 rows for both paths |
+| R2, measure then write | **Accepted, sharpened:** one `GetSpan(5 + size)` and one `Advance`, with no staging. Messages over the host's contiguous cap are staged, or reset on error. The rewind buffer is not needed, because a unary method returns before encoding starts. | E0 bytes copied per reply; the `large_unary` interop case |
+| R3, owned by default, views opt-in | **Accepted:** views only in a synchronous fast profile, and only with a codec generated later | E0 owned-against-borrowed access on 32- and 512-byte fields |
+| R4, pool bytes, not messages | **Accepted.** Per-stream readers and writers are pooled with their stream. | allocation gate |
+| R5, codec seam, Google.Protobuf first | **Accepted, with a numeric trigger:** generate a codec from `.proto` only if the codec takes at least 15% of server CPU per call on any representative shape, or its allocations cost at least 3% of throughput. C#-first message contracts were dropped; services stay C#-first. | E0 and the same-host comparison of the two codecs |
+| R6, strings copied by default | **Accepted.** The string cache is deferred until a profile shows the allocation. | E0 string-heavy shape |
+| R7, batch writes, epochs only for shared state | **Accepted.** One writer per connection owns HPACK and the windows. The TsavoriteLog-style concurrent reservation was **rejected** for milestone 1, because HPACK and window decisions are ordered per connection. Inline execution became "the signature decides", with a host policy and sampled demotion. | E2/E6 flush sweep; E5 for the inline default |
+
+The questions below are settled as follows:
+
+- **Questions 1 to 3** are settled by the table above.
+- **Question 4**, scratch retention, is still open.
+- **Question 5**, the hand-off cost, became experiments E3 and E4.
+- **Question 6**, the flush policy, is set in [CALL-INTERFACE.md](CALL-INTERFACE.md#the-response-path).
+
 ## Benchmark controls for any comparison with grpc-dotnet
 
 The protobuf note lists ten controls. The essentials:
@@ -223,7 +266,9 @@ The protobuf note lists ten controls. The essentials:
 - **Message shapes.** Scalar-only, string-heavy, and nested or repeated messages, at 8, 32, 512 and 4096 bytes.
 - **Same host.** The same Kestrel version, transport options and HTTP/2 limits, and the grpc-dotnet service registered as a singleton.
 - **Same features.** Compression, deadlines, interceptors, logging and tracing match on both sides.
-- **Separate load generator.** An out-of-process load generator on separate cores, with fixed connection and stream counts, including a run with one stream per connection.
+- **Separate load generator.** An out-of-process load generator on separate cores, with fixed connection and stream counts, including a run with one stream per connection. JSON-RPC.NET's September gRPC rows ran the .NET client on the server's cores. Those figures measured the client, and they are not a server baseline.
+- **Saturation.** A cell counts only if the server cores are at least 90% busy and doubling the offered load does not change the result, which is ioxide's rule.
+- **Validation and true percentiles.** `h2load` counts HTTP 2xx only and reports its maximum where a p99 is expected. Pair every acceptance cell with a standard gRPC client that checks each `grpc-status` and payload, and record a real latency histogram.
 - **Calls in flight.** Report the depth: 1 call in flight per connection, and 256 as in the README baselines. FASTER, Garnet and Shadowfax publish their headline figures only with deep client pipelining, so a figure at one depth must not be compared with one at another.
 - **Allocation reporting.** Bytes allocated per call and GC counts, not only requests per second, plus a Kestrel floor measured with an endpoint that returns a fixed response.
 - **Allocation gate in CI.** Fail a build when allocated bytes per call exceed the expected value, as Garnet's CI does with a 10% margin.
