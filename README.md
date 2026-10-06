@@ -2,17 +2,24 @@
 
 GRPC.NET is planned as a gRPC server library for .NET, ported from [JSON-RPC.NET](https://github.com/Astn/JSON-RPC.NET). It keeps that library's programming model and speaks the [gRPC protocol](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md) on the wire. It aims for minimal dependencies and higher throughput than JSON-RPC.NET.
 
-**Status:** nothing is implemented yet. The design questions below are still open.
+**Status:** nothing is implemented yet. The transport approach is decided; the other design questions below are still open.
 
 ## Goals
 
 - **The JSON-RPC.NET model.**
   - Methods are plain members of a class, marked with an attribute.
-  - The hosting options mirror JSON-RPC.NET's: ASP.NET Core, raw Kestrel connections, and a processor for transports you own.
   - Synchronous, `Task` and `ValueTask` methods are supported, with cooperative cancellation.
 - **The gRPC protocol.** Standard gRPC clients in any language can call a GRPC.NET service.
 - **Minimal dependencies.** Each package dependency has to justify itself, as JSON-RPC.NET's built-in serializer replaced its JSON library dependency.
 - **Faster than JSON-RPC.NET.** Comparisons use the same calls on the same host, and their raw data is published.
+
+## Transport
+
+These decisions were made on 2026-10-05:
+
+- **A transport-agnostic core.** As in JSON-RPC.NET, the core takes a call's method path, metadata and messages, and writes the reply's messages and status to a writer the caller provides. It has no dependency on HTTP or ASP.NET Core. A host owns framing, connections and limits, and an application can embed the core in a transport of its own.
+- **Kestrel hosting out of the box.** A host package maps services into ASP.NET Core and serves the standard gRPC protocol over HTTP/2 and HTTP/3, so standard gRPC clients can call it.
+- **A built-in hosting mode only if measured.** A server mode of GRPC.NET's own, such as a purpose-built HTTP/2 path, is added only if benchmarks show a large win over the Kestrel host.
 
 ## Baselines
 
@@ -29,12 +36,12 @@ The gRPC rows include the .NET client, which ran on the same cores as the server
 ## Open design questions
 
 1. **Contract.** Services could be defined in `.proto` files with generated code, in C# first with the schema derived from attributes, or both.
-2. **Transport.** HTTP/2 could come from Kestrel, from a minimal built-in HTTP/2 implementation, or from both. HTTP/3 is a further option.
+2. **The core's call interface.** It must cover streaming as well as unary calls, so the core accepts and produces message sequences, not one request and one reply. It must also say how a host passes deadlines, cancellation and metadata in, and how trailers come back.
 3. **Serialization.** Messages could be encoded with Google.Protobuf or with a built-in Protocol Buffers codec, as jsmn is built in for JSON-RPC.NET.
 4. **Call types.** These are unary, server streaming, client streaming and bidirectional streaming. The first release needs a subset of them.
 5. **gRPC features.** These include deadlines, metadata, compression, rich status details, health checking and reflection, each to be supported or deferred.
 6. **Interoperability.** Conformance could be proven against gRPC's interop test suite and against standard clients.
-7. **Benchmarks.** "Faster than JSON-RPC.NET" needs a definition. Unary gRPC carries HTTP/2 headers and trailers on every call, which the raw TCP path does not. Unary calls and streams may therefore need separate targets, and the throughput of gRPC for .NET is a second baseline.
+7. **Benchmarks.** "Faster than JSON-RPC.NET" needs a definition. Unary gRPC carries HTTP/2 headers and trailers on every call, which the raw TCP path does not. Unary calls and streams may therefore need separate targets, and the throughput of gRPC for .NET is a second baseline. The same benchmarks decide whether a built-in hosting mode earns its place, measuring the core alone, the core behind Kestrel, and any candidate built-in host.
 8. **Targets.** The target frameworks are open, as is whether Native AOT and trimming are supported from the start.
 
 ## License
