@@ -200,6 +200,96 @@ public sealed class MessageWriter<T>
 - The writer skips window-stalled streams and keeps order within each stream.
 - On the receive side, a stream's `WINDOW_UPDATE` is sent only after its reader has consumed the bytes, so a slow method throttles only its own stream.
 
+## Service registration
+
+Registration keeps JSON-RPC.NET's model, plain lambdas and attribute-marked classes, but checks every binding against the gRPC contract in the `.proto`. As much as possible is checked at compile time; the rest is checked at startup, before the host accepts a call.
+
+**Typed method objects.** A small generator emits one object per method in the `.proto`. The type of that object carries the request type, the response type and the call kind:
+
+```csharp
+// generated from calculator.proto (names illustrative)
+public static partial class Calculator
+{
+    public static readonly UnaryMethod<AddRequest, AddReply> Add = new("calc.Calculator", "Add");
+    public static readonly DuplexMethod<ChatMessage, ChatMessage> Chat = new("calc.Calculator", "Chat");
+}
+```
+
+Each object also carries the method's path as precomputed UTF-8 bytes, its Google.Protobuf `MethodDescriptor`, and the codec binding. Registration therefore needs no strings.
+
+**Binding a lambda.** `Bind` has one overload per call kind and per handler form. The compiler infers the request and response types from the first argument, then types the lambda's parameters from them, so the editor offers full type hints:
+
+```csharp
+app.MapGrpcNet()
+   .Bind(Calculator.Add, r => new AddReply { Sum = r.A + r.B })        // r : AddRequest
+   .Bind(Calculator.Chat, async (requests, responses, ct) =>            // MessageReader<ChatMessage>, MessageWriter<ChatMessage>
+   {
+       while (await requests.MoveNextAsync())
+           await responses.WriteAsync(requests.Current);
+   });
+```
+
+```csharp
+// library overloads (illustrative)
+Bind<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, TResp> handler);
+Bind<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, CancellationToken, ValueTask<TResp>> handler);
+Bind<TReq, TResp>(ServerStreamingMethod<TReq, TResp> method, Func<TReq, MessageWriter<TResp>, CancellationToken, ValueTask> handler);
+Bind<TReq, TResp>(ClientStreamingMethod<TReq, TResp> method, Func<MessageReader<TReq>, CancellationToken, ValueTask<TResp>> handler);
+Bind<TReq, TResp>(DuplexMethod<TReq, TResp> method, Func<MessageReader<TReq>, MessageWriter<TResp>, CancellationToken, ValueTask> handler);
+```
+
+A wrong request or response type, or a handler of the wrong call kind, does not compile, and there is no method-name string to misspell. The exact form `Bind<Calculator.Add>(...)` is not possible in current C#, which cannot infer the remaining type arguments from a type argument; passing the method as a value gets the same result.
+
+**Binding a whole service.** The generator also emits a binder per service whose members are C# `required` properties, so leaving a method unbound is a compile error:
+
+```csharp
+app.MapGrpcNet(new Calculator.Binder
+{
+    Add  = r => new AddReply { Sum = r.A + r.B },
+    Chat = async (requests, responses, ct) => { /* ... */ },
+});
+```
+
+Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`.
+
+**Attribute-marked classes.** The JSON-RPC.NET style stays:
+
+```csharp
+[GrpcService(typeof(Calculator))]
+public sealed class CalculatorService
+{
+    [GrpcMethod] public AddReply Add(AddRequest request) => new() { Sum = request.A + request.B };
+}
+```
+
+- Methods are matched to the `.proto` by name and checked at startup.
+- If the generator is built as a Roslyn generator, an analyzer can report a mismatch at build time instead.
+- Classes are registered through dependency injection, as in JSON-RPC.NET (`AddGrpcNetService<T>()`).
+
+**Startup checks.** Every binding, whichever form it takes, is checked against the `.proto`'s service descriptor before the host starts listening:
+
+1. The method exists in the descriptor.
+2. The handler's request and response types equal the descriptor's `InputType.ClrType` and `OutputType.ClrType`.
+3. The call kind agrees with `IsClientStreaming` and `IsServerStreaming`.
+4. No method is bound twice.
+5. Every method of a service mapped with `MapGrpcNet(binder)` is bound. Services bound one method at a time may opt out.
+
+A failed check stops startup with the method's full name and the mismatch. The same checks are exposed for tests, so CI catches drift without starting a server. For typed bindings these checks repeat what the compiler already enforced. They remain as the backstop for attribute classes and for a generated file that has fallen behind its `.proto`.
+
+**Execution options.** `Dispatch` or `Inline` (see [Where methods run](#where-methods-run)) goes on the lambda as an attribute, or as an argument to `Bind`.
+
+**Cost on the hot path.** None. Checks run once, at registration. A lambda becomes one delegate field inside the method's struct invoker, so each call costs one indirect call. A non-capturing lambda allocates nothing; a capturing one allocates once, at bind time.
+
+**Lifetimes and sessions.**
+- Services are singletons by default. Scoped and transient lifetimes, resolved per call as in JSON-RPC.NET, are an opt-in; E0 measures what the per-call scope costs.
+- JSON-RPC.NET's named sessions are not carried over in milestone 1. Mapping several endpoints, each with its own set of services, covers multi-tenant hosts.
+
+**The generator.** Grpc's own C# plugin generates method objects too, but they depend on Grpc.Core.Api, which conflicts with the minimal-dependency goal. GRPC.NET therefore emits its own, as either:
+- a `protoc` plugin run through Grpc.Tools' extra protoc arguments; or
+- a Roslyn source generator that reads the descriptor `protoc` already embeds in its generated C#.
+
+A short spike in milestone 1 picks one. This generator emits descriptors, binders and invokers only; the generated protobuf codec remains a later, measured decision.
+
 ## Messages and the codec
 
 ```csharp
@@ -213,7 +303,7 @@ public interface IMessageCodec<T>
 
 - **Milestone 1** uses Google.Protobuf with `protoc`-generated messages through this seam: `ParseFrom` on a span, `CalculateSize`, and `WriteTo` into exactly `size` bytes. The adapter adds no wrapper or context object per call, but Google.Protobuf still allocates the message and its strings, `bytes` and repeated fields; those allocations are measured for each message shape. The codec is deliberately not optimized in milestone 1, so the host experiments measure the host. It also keeps the benchmark control of using the same codec on both sides.
 - **Invokers.** Each method binds a closed `TCodec : struct` and `TInvoker : struct` pair once, into the method table: no reflection, no delegate allocation and no generic discovery per call, as in Tsavorite's struct callbacks.
-- **Contracts.** Services are declared C#-first, as in JSON-RPC.NET: `[GrpcService("package.Service")]` classes with `[GrpcMethod]` methods. The method table is built at startup. Messages are defined in `.proto`, the only wire contract, which foreign clients need anyway. A C#-first message schema is not planned: it would remove no hot-path work and double the conformance work.
+- **Contracts.** Services are implemented in C#, as lambdas or attribute-marked classes, and bound to typed method objects generated from the `.proto` (see [Service registration](#service-registration)). The method table is built at startup. Messages are defined in `.proto`, the only wire contract, which foreign clients need anyway. A C#-first message schema is not planned: it would remove no hot-path work and double the conformance work.
 - **Ownership.** Messages own their data by default. Borrowed `ref struct` views exist only in a synchronous fast profile, `void M(in TView request, ref TWriter response)` or `TResp M(in TView request)`, and arrive with the generated codec. Message objects are not pooled.
 - **The generated codec** comes after milestone 1, generated from `.proto`, and only if profiling shows that, on any representative message shape, either:
   - the codec takes at least 15% of server CPU per call; or

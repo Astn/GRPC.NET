@@ -8,7 +8,8 @@ GRPC.NET is planned as a gRPC server library for .NET, ported from [JSON-RPC.NET
 
 - **Significant throughput gains over grpc-dotnet.** The targets and the stop floor are under [Performance targets](#performance-targets). A design element that costs throughput needs a compensating reason.
 - **The JSON-RPC.NET model.**
-  - Methods are plain members of a class, marked with an attribute.
+  - Methods are lambdas or plain members of a class marked with an attribute.
+  - Every binding is checked against the `.proto` contract: wrong types or call kinds fail to compile, and anything left over fails at startup.
   - Synchronous, `Task` and `ValueTask` methods are supported, with cooperative cancellation.
 - **The gRPC protocol.** Standard gRPC clients in any language can call a GRPC.NET service.
 - **Minimal dependencies.** Each package dependency has to justify itself, as JSON-RPC.NET's built-in serializer replaced its JSON library dependency.
@@ -55,7 +56,7 @@ New baselines come from experiment E1 below and will be published here with thei
 
 Milestone 1 builds the smallest thing that can prove or kill the premise. The steps, in order:
 
-1. **The core**, with the Google.Protobuf codec behind a struct-generic seam, unary and bidirectional calls, deadlines and status mapping.
+1. **The core**, with the Google.Protobuf codec behind a struct-generic seam, unary and bidirectional calls, deadlines and status mapping. It includes the generator for typed method objects and service binders, together with the startup checks against the contract ([Service registration](CALL-INTERFACE.md#service-registration)).
 2. **A benchmark harness for the core alone.**
 3. **The Kestrel host.**
 4. **A raw-framing diagnostic host.**
@@ -111,7 +112,7 @@ Milestone 1 builds the smallest thing that can prove or kill the premise. The st
 - reflection and health services;
 - interceptors;
 - a client library;
-- Native AOT and a source generator;
+- Native AOT;
 - a generated protobuf codec and borrowed message views;
 - HTTP/3 testing;
 - an io_uring transport.
@@ -120,7 +121,7 @@ Milestone 1 builds the smallest thing that can prove or kill the premise. The st
 
 | Question | Status |
 | --- | --- |
-| 1. Contract | Decided: services are declared in C# with attributes, as in JSON-RPC.NET; messages are defined in `.proto`, the only wire contract. |
+| 1. Contract | Decided: messages and services are defined in `.proto`, the only wire contract. Implementations are C# lambdas or attribute-marked classes, bound to typed method objects generated from the `.proto` and checked against it ([Service registration](CALL-INTERFACE.md#service-registration)). |
 | 2. The core's call interface | Decided: [CALL-INTERFACE.md](CALL-INTERFACE.md). |
 | 3. Serialization | Decided for milestone 1: Google.Protobuf behind a struct-generic codec seam. A codec generated from `.proto` follows only if profiling shows the codec takes at least 15% of server CPU per call, or its allocations cost at least 3% of throughput. |
 | 4. Call types | Milestone 1 covers unary and bidirectional streaming; client and server streaming use the same reader and writer. |
