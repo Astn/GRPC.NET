@@ -9,6 +9,10 @@ Read these before proposing or changing anything in this repository:
 
 If a change conflicts with either document, raise the conflict instead of working around it. When a design question is decided, record the decision in the document that holds the question.
 
+## Reference material
+
+- [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md): research on buffers, arenas and zero-allocation marshalling, with recommendations for the open questions. Read it before working on the core's buffer handling, the codec or message types. Its source notes are in [research/memory](research/memory).
+
 ## Rules
 
 - **No AI attribution.** Commits, pull request descriptions, issues, code, comments and documentation carry no AI attribution. That means no `Co-Authored-By` trailers for AI tools, no "Generated with" lines, and no model or tool names.

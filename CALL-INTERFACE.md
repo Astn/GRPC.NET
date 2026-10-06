@@ -120,3 +120,5 @@ grpc-dotnet gives methods the same split: `IAsyncStreamReader<T>` and `IServerSt
 5. **Backpressure.** How a slow reader on one stream limits a fast writer without stalling other streams on the same connection.
 6. **Status mapping.** How exceptions map to gRPC status codes and rich status details.
 7. **Interceptors.** Whether cross-cutting hooks exist, and where they sit relative to the fast path.
+8. **Request body type for `Process`.** [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md#r1-accept-the-request-body-as-a-sequence-and-decode-from-a-span) recommends `in ReadOnlySequence<byte>` instead of `ReadOnlySpan<byte>`, so that hosts need not copy bodies that span several pool blocks.
+9. **Message ownership.** Whether messages own their data by default, with compiler-checked `ref struct` views as an opt-in. See [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md#r3-messages-own-their-data-by-default-borrowing-is-opt-in-and-checked-by-the-compiler).
