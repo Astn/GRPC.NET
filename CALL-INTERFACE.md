@@ -266,7 +266,7 @@ app.MapGrpcNet(new Calculator.Binder
 });
 ```
 
-Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`.
+Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`. A binder member has one delegate type, and a lambda converts only to a delegate, so a binder's unary members take the synchronous form `Func<TRequest, TResponse>`; an asynchronous unary method is bound with single-method `Bind`.
 
 **Attribute-marked classes.** The JSON-RPC.NET style stays:
 
@@ -310,11 +310,16 @@ A failed check stops startup with the method's full name and the mismatch. The s
 - Services are singletons by default. Scoped and transient lifetimes, resolved per call as in JSON-RPC.NET, are an opt-in; E0 measures what the per-call scope costs.
 - JSON-RPC.NET's named sessions are not carried over in milestone 1. Mapping several endpoints, each with its own set of services, covers multi-tenant hosts.
 
-**The generator.** Grpc's own C# plugin generates method objects too, but they depend on Grpc.Core.Api, which conflicts with the minimal-dependency goal. GRPC.NET therefore emits its own, as either:
-- a `protoc` plugin run through Grpc.Tools' extra protoc arguments; or
-- a Roslyn source generator that reads the descriptor `protoc` already embeds in its generated C#.
+**The generator.** Grpc's own C# plugin generates method objects too, but they depend on Grpc.Core.Api, which conflicts with the minimal-dependency goal. GRPC.NET therefore emits its own. Two forms were considered: a `protoc` plugin run through Grpc.Tools' extra protoc arguments, and a Roslyn source generator that reads the descriptor `protoc` already embeds in its generated C#.
 
-A short spike in milestone 1 picks one. This generator emits descriptors, binders and invokers only; the generated protobuf codec remains a later, measured decision.
+Decided: a Roslyn incremental generator, `GrpcNet.Generator`.
+- **Why not a plugin.** Grpc.Tools 2.84 adds only the outputs it predicts (`X.cs` and `XGrpc.cs`) to the compilation, so a plugin's files would need their own build wiring. The interceptors, the `switch` dispatcher and the attribute-class checks need the application's C# anyway, which only Roslyn sees, so a plugin would be a second generator rather than an alternative.
+- **What it reads.** Each file's reflection class holds the serialized `FileDescriptorProto` as string literals. Its `FromGeneratedCode` call lists the C# type of every message in descriptor order, and the reflection class of every import. A message of the same file maps through that list; an imported one is looked up in its import's C# namespace and must be a protobuf message. The generator repeats none of `protoc`'s naming rules for messages it can see.
+- **No Google.Protobuf in the compiler.** A small reader decodes only the descriptor fields the generator uses, so the generator never loads a second copy of Google.Protobuf next to the application's. Malformed input is reported as a diagnostic (GN0001 to GN0003, GN0099), never a crash.
+- **What it emits.** Per service, a `static partial class` holding one method object per method and a `Binder` with a `required` handler per method. It merges with the class Grpc's plugin generates for the same service when both run. A clash with existing code is reported as GN0003 instead of a compile error inside generated code. The binder first forces the class's static initializer, so a method object that has fallen behind its `.proto` throws its own exception at registration, not a `TypeInitializationException`.
+- **Still open.** The package-consumer path (the generator inside the GrpcNet NuGet package) is untested until packaging; milestone 1 tests the analyzer project reference. Only the compiler of the SDK in `global.json` is tested.
+
+This generator emits method objects, binders and invokers only; the generated protobuf codec remains a later, measured decision.
 
 ## Messages and the codec
 

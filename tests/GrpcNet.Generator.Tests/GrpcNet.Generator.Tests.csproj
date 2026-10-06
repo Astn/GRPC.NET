@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="6.3.0" />
+    <!-- Build time only: runs protoc. Its C# output is both compiled here and fed to the generator as test input. -->
+    <PackageReference Include="Grpc.Tools" Version="2.84.0" PrivateAssets="all" />
+    <!-- Test only: drives the generator with GeneratorDriver and compiles its output. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Protos\*.proto" ProtoRoot="Protos" GrpcServices="None" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The generator as a library, so the tests can run it; it does not run on this project. -->
+    <ProjectReference Include="..\..\src\GrpcNet.Generator\GrpcNet.Generator.csproj" />
+    <ProjectReference Include="..\..\src\GrpcNet.Protobuf\GrpcNet.Protobuf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Snapshots\*" />
+  </ItemGroup>
+
+  <!-- The tests feed protoc's real C# output to the generator. -->
+  <Target Name="CopyProtocOutput" AfterTargets="Build">
+    <Copy SourceFiles="@(Protobuf_ExpectedOutputs)" DestinationFolder="$(OutDir)protoc" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package calc;
+
+option csharp_namespace = "GrpcNet.Generator.Tests.Calc";
+
+import "google/protobuf/empty.proto";
+import "common.proto";
+
+message AddRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+message AddReply {
+  int32 sum = 1;
+}
+
+message Outer {
+  message Inner {
+    string value = 1;
+  }
+
+  map<string, int32> counts = 1;
+  Inner inner = 2;
+}
+
+service Calculator {
+  rpc Add (AddRequest) returns (AddReply);
+  rpc Count (AddRequest) returns (stream AddReply);
+  rpc Sum (stream AddRequest) returns (AddReply);
+  rpc Chat (stream Outer.Inner) returns (stream Outer.Inner);
+  rpc Ping (google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc Share (common.v1.Shared.Item) returns (common.v1.Shared);
+}
+
+service Second {
+  rpc Describe (Outer) returns (Outer.Inner);
+}

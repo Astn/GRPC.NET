@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+// No package and no csharp_namespace: protoc puts the C# in the global namespace.
+
+message Lonely {
+  int32 v = 1;
+}
+
+service Solo {
+  rpc Call (Lonely) returns (Lonely);
+}

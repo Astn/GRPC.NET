@@ -1,9 +1,12 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/GrpcNet.Generator/GrpcNet.Generator.csproj" />
     <Project Path="src/GrpcNet.Protobuf/GrpcNet.Protobuf.csproj" />
     <Project Path="src/GrpcNet/GrpcNet.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/GrpcNet.Generator.EndToEnd.Tests/GrpcNet.Generator.EndToEnd.Tests.csproj" />
+    <Project Path="tests/GrpcNet.Generator.Tests/GrpcNet.Generator.Tests.csproj" />
     <Project Path="tests/GrpcNet.Protobuf.Tests/GrpcNet.Protobuf.Tests.csproj" />
     <Project Path="tests/GrpcNet.Tests/GrpcNet.Tests.csproj" />
   </Folder>

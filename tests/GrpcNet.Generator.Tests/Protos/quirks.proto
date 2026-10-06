@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package quirks;
+
+option csharp_namespace = "GrpcNet.Generator.Tests.Quirks";
+
+message M {
+  int32 v = 1;
+}
+
+// Method names that are C# keywords or object members.
+service Quirks {
+  rpc ToString (M) returns (M);
+  rpc Equals (M) returns (M);
+  rpc event (M) returns (M);
+}

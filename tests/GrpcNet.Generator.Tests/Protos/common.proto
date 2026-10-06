@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+// No csharp_namespace: protoc derives Common.V1 from the package.
+package common.v1;
+
+message Shared {
+  message Item {
+    int32 id = 1;
+  }
+
+  repeated Item items = 1;
+}

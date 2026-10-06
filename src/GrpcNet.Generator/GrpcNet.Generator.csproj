@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Roslyn loads generators built for netstandard2.0. -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>GrpcNet.Generator</RootNamespace>
+    <Description>Source generator for GrpcNet: typed method objects and service binders, generated from the descriptors protoc embeds in its C# output.</Description>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- Runs inside the compiler, never in an application. -->
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Compile time only, never shipped as a dependency: the incremental generator API the generator is built on. 4.14 rather
+      than 5.0, so the generator does not demand the newest compiler. Only the compiler of the SDK in global.json is tested.
+    -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GrpcNet.Generator.Tests" />
+  </ItemGroup>
+</Project>

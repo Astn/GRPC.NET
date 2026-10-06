@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package merge;
+
+option csharp_namespace = "GrpcNet.Generator.EndToEnd.Merge";
+
+message Note {
+  string text = 1;
+}
+
+// Grpc's own plugin also generates a static partial class Merger for this service.
+service Merger {
+  rpc Ping (Note) returns (Note);
+}

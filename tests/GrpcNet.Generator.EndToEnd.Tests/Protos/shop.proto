@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package shop;
+
+option csharp_namespace = "GrpcNet.Generator.EndToEnd.Shop";
+
+import "google/protobuf/empty.proto";
+
+message Item {
+  message Price {
+    int32 cents = 1;
+  }
+
+  string name = 1;
+  Price price = 2;
+}
+
+message Query {
+  int32 count = 1;
+}
+
+service Shop {
+  rpc Get (Query) returns (Item);
+  rpc List (Query) returns (stream Item);
+  rpc Total (stream Item.Price) returns (Item.Price);
+  rpc Echo (stream Item) returns (stream Item);
+  rpc Ping (google.protobuf.Empty) returns (google.protobuf.Empty);
+}

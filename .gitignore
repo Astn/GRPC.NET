@@ -17,3 +17,6 @@ coverage*.xml
 .vscode/
 *.user
 *.suo
+
+# Snapshot test output awaiting review
+*.received

@@ -71,14 +71,31 @@ namespace GrpcNet.Protobuf
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
+        /// <summary>
+        /// Binds every method of a service through its generated <paramref name="binder"/>, and requires the service to be
+        /// complete when the processor is built.
+        /// </summary>
+        public static GrpcProcessorBuilder Bind(this GrpcProcessorBuilder builder, IServiceBinder binder)
+        {
+            if (builder == null) throw new ArgumentNullException(nameof(builder));
+            if (binder == null) throw new ArgumentNullException(nameof(binder));
+            binder.BindTo(builder);
+            return builder;
+        }
+
         // Everything that can reject a Bind is checked before the builder changes, so a rejected Bind leaves nothing behind.
         private static void Preflight(GrpcProcessorBuilder builder, GrpcMethod method)
         {
             if (builder == null) throw new ArgumentNullException(nameof(builder));
             if (method == null) throw new ArgumentNullException(nameof(method));
+            ThrowIfConflicting(builder, method.Descriptor.Service);
+        }
+
+        internal static void ThrowIfConflicting(GrpcProcessorBuilder builder, ServiceDescriptor service)
+        {
             if (s_registries.TryGetValue(builder, out ServiceRegistry? registry))
             {
-                registry.ThrowIfConflicting(method.Descriptor.Service);
+                registry.ThrowIfConflicting(service);
             }
         }
 

@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package collide;
+
+option csharp_namespace = "GrpcNet.Generator.Tests.Collide";
+
+message M {
+  int32 v = 1;
+}
+
+// Method names that collide with the generated class itself.
+service Echo {
+  rpc Echo (M) returns (M);
+  rpc Binder (M) returns (M);
+}
