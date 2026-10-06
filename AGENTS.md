@@ -11,7 +11,7 @@ If a change conflicts with either document, raise the conflict instead of workin
 
 ## Reference material
 
-- [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md): research on buffers, arenas and zero-allocation marshalling, with recommendations for the open questions. Read it before working on the core's buffer handling, the codec or message types. Its source notes are in [research/memory](research/memory).
+- [RESEARCH-MEMORY.md](RESEARCH-MEMORY.md): research on buffers, arenas, zero-allocation marshalling and the FASTER/Garnet techniques, with recommendations for the open questions. Read it before working on the core's buffer handling, the codec or message types. Its source notes are in [research/memory](research/memory).
 
 ## Rules
 

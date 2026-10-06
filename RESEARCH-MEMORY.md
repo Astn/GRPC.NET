@@ -1,13 +1,14 @@
 # Research: memory, buffers and zero-allocation marshalling
 
-**Status:** research of 2026-10-05. It informs the open questions in [README.md](README.md#open-design-questions) and [CALL-INTERFACE.md](CALL-INTERFACE.md#open-questions); it decides nothing. The recommendations below are inputs to the design review.
+**Status:** research of 2026-10-05, extended 2026-10-06 with FASTER, Tsavorite and Garnet. It informs the open questions in [README.md](README.md#open-design-questions) and [CALL-INTERFACE.md](CALL-INTERFACE.md#open-questions); it decides nothing. The recommendations below are inputs to the design review.
 
-This document summarizes three sets of notes. Each note pins every claim to a source file and line at a recorded commit, a documentation page or a paper, and marks its own inferences.
+This document summarizes four sets of notes. Each note pins every claim to a source file and line at a recorded commit, a documentation page or a paper, and marks its own inferences.
 
 | Note | Covers |
 | --- | --- |
 | [research/memory/flatsharp.md](research/memory/flatsharp.md) | FlatSharp (James Courtney): deserialization modes, buffer abstractions, code generation, pooling, gRPC integration, benchmarks |
 | [research/memory/protobuf-grpc-dotnet.md](research/memory/protobuf-grpc-dotnet.md) | Google.Protobuf and protobuf-net span APIs, grpc-dotnet's serialization seams and per-call costs, Kestrel's HTTP/2 memory model, string decoding |
+| [research/memory/faster-tsavorite.md](research/memory/faster-tsavorite.md) | FASTER KV and FasterLog, their successors Tsavorite and TsavoriteLog, and Garnet's own TCP host: epoch protection, the hybrid log, latch-free tail reservation and group commit, struct-generic callbacks, in-place parsing and batched sends |
 | [research/memory/arenas-zero-alloc.md](research/memory/arenas-zero-alloc.md) | .NET building blocks (spans, `Memory<T>`, pools, the pinned heap, native memory, ref structs), arena patterns in .NET projects, arenas elsewhere, other zero-copy serializers, the research literature |
 
 ## Findings
@@ -104,13 +105,30 @@ grpc-dotnet adds further costs that GRPC.NET's design does not need:
 - the `Task<TResponse>`;
 - an intermediate `ArrayBufferWriter` when the payload length is unknown.
 
+### 7. FASTER, Tsavorite and Garnet: epochs, batched sends, and no thread hand-offs
+
+- **Epochs are cheap but tied to a thread.** Tsavorite's epoch protection gives each thread a 64-byte slot. Entering and leaving cost about one compare-and-swap, measured at 35M pairs per second per thread. Memory is reclaimed only after every thread has moved past the epoch in which it was retired. Because the slot belongs to an OS thread, an epoch suits short synchronous regions and rarely written shared state, such as a method table. It cannot cover a buffer that lives across an `await`, so leases and reference counts stay the right tools there.
+- **The log reserves space without a lock.** Writers reserve space with one fetch-and-add on the tail and copy their bytes in parallel. Per-thread in-flight marks give the fully written prefix, and that prefix is committed in groups, with one completion shared by all waiters. The single tail becomes the bottleneck as writer threads grow.
+- **Callbacks are struct type parameters.** Tsavorite passes its callbacks as struct type parameters with `ref` arguments, so the JIT specializes and inlines them. Class implementations get the same effect through a struct wrapper. CI fails a build when allocated bytes exceed the expected value by more than 10%.
+- **Garnet's TCP host skips ASP.NET Core.** It works like this:
+  - It receives into one contiguous, growable, pinned 128 KiB buffer per connection.
+  - It parses requests in place on the receive thread.
+  - It writes every response for one receive into one pooled pinned buffer, then sends it once.
+  - CI expects 0 bytes allocated through the network path.
+- **Thread hand-offs cost an order of magnitude.** Garnet's design study measured 47 Mops/s when work stays on the receive thread, against 1.3 to 17.1 Mops/s for designs that lock, hand off or shard ([Garnet, PVLDB 2025, §8.5](https://www.vldb.org/pvldb/vol19/p224-chandramouli.pdf)).
+- **Cautions.**
+  - RESP, the protocol Garnet speaks, is pipelined and not multiplexed, so it is far simpler than HTTP/2.
+  - Garnet blocks threads on TLS, on its send throttle and on accept backoff.
+  - Every headline figure relies on deep client pipelining.
+  - No source compares Garnet's host with Kestrel.
+
 ## Recommendations for the design review
 
-These are the three notes' inferences, reconciled where they disagreed.
+These are the notes' inferences, reconciled where they disagreed.
 
 ### R1. Accept the request body as a sequence and decode from a span
 
-The three notes disagreed on `Process`'s input:
+The first three notes disagreed on `Process`'s input:
 
 - **FlatSharp note:** keep the contiguous span the draft has now.
 - **Protobuf note:** take `in ReadOnlySequence<byte>`, because a span forces the host to copy any body that spans more than one 4 KB block.
@@ -122,6 +140,8 @@ The three notes disagreed on `Process`'s input:
 - Otherwise it copies the message once into per-thread scratch, bounded by the maximum message size, and decodes from that.
 
 This keeps the copy out of every host and keeps the codec on contiguous spans, which FlatSharp's experience and protobuf's sequential format both favour. The core reads the 5-byte prefix in place, falling back to a stack copy when the prefix straddles segments.
+
+A built-in host could follow Garnet instead: one contiguous, growable receive buffer per connection, so that every request arrives as a single segment and R1's copy path stays cold. That costs 128 KiB or more per connection, plus a shift of leftover bytes after each receive.
 
 ### R2. Measure the response, then write it
 
@@ -144,10 +164,11 @@ This keeps the copy out of every host and keeps the codec on contiguous spans, w
 - **What not to pool.** The core does not pool message objects. FlatSharp measured that pooling was slower, and the hazards are real.
 - **Overwrite deserialization.** Reusing one message object per stream, in the MemoryPack style, is a possible later opt-in, but only if measurements show it pays.
 - **Memory the core does not own.** It creates no pinned or native memory of its own in the first release. Kestrel already owns and evicts its pinned blocks, and native memory turns use-after-free into undefined behaviour.
+- **Scope.** This rule is for the core. A built-in socket host would almost certainly want pinned send and receive buffers, as Kestrel, FASTER and Garnet all use. Any `unsafe` code would stay inside that host, and the core would see only spans and `IBufferWriter<byte>`.
 
 ### R5. A codec seam in the core, a Google.Protobuf adapter first, and a built-in codec only if measured
 
-All three notes converge on this staging for README question 3:
+All four notes support this staging for README question 3:
 
 1. **The seam.** The core defines a codec interface: decode from a span, report the exact size, and encode into an `IBufferWriter<byte>`. Struct-generic implementations avoid interface dispatch.
 2. **First codec.** A Google.Protobuf adapter, built on the public `ParseFrom`, `CalculateSize` and `WriteTo` APIs, gives `.proto` interop from day one.
@@ -159,6 +180,8 @@ All three notes converge on this staging for README question 3:
 
    It would need conformance work comparable to FlatSharp's: round-trip tests against Google.Protobuf, fuzzing, and the gRPC interop suite.
 
+Tsavorite's struct-generic callbacks are a production precedent for this seam. They support generated `readonly struct` method invokers with `in` and `ref` parameters, bound once at registration. The cost is one JIT body per instantiation, which generated code keeps explicit for Native AOT.
+
 The claim "no allocation per call" belongs to the built-in codec on scalar or view-typed messages. With class-typed messages, the message objects and their strings are the user's choice and are reported as such.
 
 ### R6. Strings
@@ -169,7 +192,17 @@ Three options, in order of preference:
 - **UTF-8 views.** Views expose UTF-8 bytes, which must still be validated because protobuf requires valid UTF-8 in `string` fields.
 - **A cache for repeated values.** For low-cardinality values such as tenant ids or enum-like strings, a cache keyed by the UTF-8 bytes could avoid the allocation itself. Kestrel's reuse of known-header values is the precedent.
 
-No shipping `Utf8String` type exists.
+No shipping `Utf8String` type exists. Tsavorite and Garnet never turn keys into `string`; they hash and compare the bytes.
+
+### R7. Batch writes per pass; keep epochs to synchronous, shared state
+
+- **Batching writes.** Write all the responses produced by one read pass before a single flush. Garnet and JSON-RPC.NET both do this, and it works behind Kestrel's `PipeWriter` too. Responses that complete outside a read pass, such as async methods and server streams, flush when the input runs dry or when a byte or time threshold is reached. All waiters for a flush share one completion.
+- **A built-in host's send path.** A built-in host could go further. Streams would reserve DATA frames in a per-connection send buffer with one atomic add, following TsavoriteLog's design, and a single sender would send the written prefix. This would need several things:
+  - header encoding serialized under a lock, or done without HPACK's dynamic table;
+  - flow-control windows checked before reserving, so that a blocked stream never holds the tail;
+  - a measurement of tail contention.
+- **Epochs.** Use them, if anywhere, for rarely written shared state such as the method table. Never use them for buffers that cross an `await`.
+- **What not to borrow.** Raw pointers as the general programming model, blocking waits on I/O threads, fixed process-wide limits, and zeroing every returned buffer.
 
 ## Benchmark controls for any comparison with grpc-dotnet
 
@@ -181,6 +214,7 @@ The protobuf note lists ten controls. The essentials:
 - **Same features.** Compression, deadlines, interceptors, logging and tracing match on both sides.
 - **Separate load generator.** An out-of-process load generator on separate cores, with fixed connection and stream counts, including a run with one stream per connection.
 - **Allocation reporting.** Bytes allocated per call and GC counts, not only requests per second, plus a Kestrel floor measured with an endpoint that returns a fixed response.
+- **Allocation gate in CI.** Fail a build when allocated bytes per call exceed the expected value, as Garnet's CI does with a 10% margin.
 - **Warmup and tiering.** A fixed warmup and the same tiering settings on both sides. Cold Tier-0 code inverts serializer rankings, as JSON-RPC.NET's serializer work found.
 
 ## Questions this adds to the design review
@@ -189,3 +223,5 @@ The protobuf note lists ten controls. The essentials:
 2. **Message ownership model.** R3: owned by default, ref struct views as an opt-in, and leased `bytes` fields.
 3. **Codec seam shape and staging.** R5.
 4. **Where per-thread scratch lives.** Whether the core keeps per-thread scratch like JSON-RPC.NET's, and its retention cap.
+5. **Hand-off cost under Kestrel.** Before any work on a built-in host, measure the core behind Kestrel against the core behind a minimal socket host that processes inline and flushes once per pass. Run with 1 and 256 calls in flight per connection, and report allocated bytes per call. This repeats Garnet's design study for our case.
+6. **Flush policy.** R7: flush at the end of each read pass, with a byte or time threshold for responses that complete outside one.
