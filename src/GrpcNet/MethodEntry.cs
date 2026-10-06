@@ -9,11 +9,12 @@ namespace GrpcNet
     /// </summary>
     internal abstract class MethodEntry
     {
-        protected MethodEntry(string path, MethodKind kind)
+        protected MethodEntry(string path, MethodKind kind, Type requestType, Type responseType, object? contract)
         {
             Path = path;
             PathUtf8 = MethodTable.EncodePath(path);
             Kind = kind;
+            Binding = new BoundMethod(path, kind, requestType, responseType, contract);
         }
 
         internal string Path { get; }
@@ -21,6 +22,8 @@ namespace GrpcNet
         internal byte[] PathUtf8 { get; }
 
         internal MethodKind Kind { get; }
+
+        internal BoundMethod Binding { get; }
 
         internal MethodId Id { get; set; }
 
@@ -43,8 +46,8 @@ namespace GrpcNet
         private readonly TRequestCodec _requestCodec;
         private readonly TResponseCodec _responseCodec;
 
-        internal UnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler)
-            : base(path, MethodKind.Unary)
+        internal UnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler, object? contract)
+            : base(path, MethodKind.Unary, typeof(TRequest), typeof(TResponse), contract)
         {
             _requestCodec = requestCodec;
             _responseCodec = responseCodec;

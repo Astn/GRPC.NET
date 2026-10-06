@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>GrpcNet.Protobuf</RootNamespace>
+    <Description>Google.Protobuf support for GrpcNet: the message codec, typed method objects checked against the .proto descriptor, and Bind.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The milestone 1 codec: standard protobuf parsing and encoding of protoc-generated messages. -->
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GrpcNet\GrpcNet.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GrpcNet.Protobuf.Tests" />
+  </ItemGroup>
+</Project>

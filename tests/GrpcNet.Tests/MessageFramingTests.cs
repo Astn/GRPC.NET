@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using NUnit.Framework;
 
 namespace GrpcNet.Tests
@@ -89,9 +90,53 @@ namespace GrpcNet.Tests
         }
 
         [Test]
-        public void BindingAPathTwiceThrows()
+        public void BindingAPathTwiceThrowsAtTheBinding()
         {
-            Assert.Throws<InvalidOperationException>(() => Builder("/a.B/C", "/a.B/C").Build());
+            GrpcProcessorBuilder builder = Builder("/a.B/C");
+            var ex = Assert.Throws<InvalidOperationException>(() => Builder("/a.B/C").AddUnary<int, int, IntCodec, IntCodec>("/a.B/C", default, default, x => x));
+            Assert.That(ex!.Message, Does.Contain("/a.B/C"));
+            Assert.That(builder.Bindings, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void BindingsDescribeEachRegisteredMethod()
+        {
+            var contract = new object();
+            var builder = new GrpcProcessorBuilder().AddUnary<int, byte[], IntCodec, BytesCodec>("/pkg.Svc/Go", default, default, x => new byte[x], contract);
+            BoundMethod bound = builder.Bindings[0];
+            Assert.That(bound.Path, Is.EqualTo("/pkg.Svc/Go"));
+            Assert.That(bound.ServiceName, Is.EqualTo("pkg.Svc"));
+            Assert.That(bound.MethodName, Is.EqualTo("Go"));
+            Assert.That(bound.Kind, Is.EqualTo(MethodKind.Unary));
+            Assert.That(bound.RequestType, Is.EqualTo(typeof(int)));
+            Assert.That(bound.ResponseType, Is.EqualTo(typeof(byte[])));
+            Assert.That(bound.Contract, Is.SameAs(contract));
+        }
+
+        [Test]
+        public void ChecksRunOverEveryBindingAndBuildRefusesOnAnyProblem()
+        {
+            var seen = new List<string>();
+            GrpcProcessorBuilder builder = Builder("/a.B/C", "/a.B/D")
+                .AddCheck((bindings, problems) =>
+                {
+                    foreach (BoundMethod b in bindings) seen.Add(b.Path);
+                })
+                .AddCheck((bindings, problems) => problems.Add("first"))
+                .AddCheck((bindings, problems) => problems.Add("second"));
+
+            Assert.That(builder.Check(), Is.EqualTo(new[] { "first", "second" }));
+            Assert.That(seen, Is.EqualTo(new[] { "/a.B/C", "/a.B/D" }));
+            var ex = Assert.Throws<InvalidOperationException>(() => builder.Build());
+            Assert.That(ex!.Message, Does.Contain("first").And.Contain("second"));
+        }
+
+        [Test]
+        public void PassingChecksBuild()
+        {
+            GrpcProcessorBuilder builder = Builder("/a.B/C").AddCheck((bindings, problems) => { });
+            Assert.That(builder.Check(), Is.Empty);
+            Assert.That(builder.Build().Resolve("/a.B/C"u8).IsValid, Is.True);
         }
 
         [TestCase("")]

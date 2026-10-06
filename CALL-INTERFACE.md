@@ -210,12 +210,12 @@ Registration keeps JSON-RPC.NET's model, plain lambdas and attribute-marked clas
 // generated from calculator.proto (names illustrative)
 public static partial class Calculator
 {
-    public static readonly UnaryMethod<AddRequest, AddReply> Add = new("calc.Calculator", "Add");
-    public static readonly DuplexMethod<ChatMessage, ChatMessage> Chat = new("calc.Calculator", "Chat");
+    public static readonly UnaryMethod<AddRequest, AddReply> Add = new(CalculatorReflection.Descriptor, "calc.Calculator", "Add");
+    public static readonly DuplexMethod<ChatMessage, ChatMessage> Chat = new(CalculatorReflection.Descriptor, "calc.Calculator", "Chat");
 }
 ```
 
-Each object also carries the method's path as precomputed UTF-8 bytes, its Google.Protobuf `MethodDescriptor`, and the codec binding. Registration therefore needs no strings.
+Each object also carries the method's path as precomputed UTF-8 bytes, its Google.Protobuf `MethodDescriptor`, and the codec binding. Registration therefore needs no strings. The constructor finds the method in the file's descriptor by its service and method names, never by position, and checks its request type, response type and call kind there. A generated file that has fallen behind its `.proto`, even one where two methods with the same signature have swapped places, fails when the object is created.
 
 **Binding a lambda.** `Bind` has one overload per call kind and per handler form. The compiler infers the request and response types from the first argument, then types the lambda's parameters from them, so the editor offers full type hints:
 

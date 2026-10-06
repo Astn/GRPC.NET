@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package test;
+
+option csharp_namespace = "GrpcNet.Protobuf.Tests.Messages";
+
+message Scalar {
+  int32 a = 1;
+  int64 b = 2;
+  double c = 3;
+  bool d = 4;
+  fixed32 e = 5;
+}
+
+message Text {
+  string value = 1;
+}
+
+message Nested {
+  Scalar inner = 1;
+  repeated Scalar items = 2;
+  map<string, int32> tags = 3;
+}
+
+message Blob {
+  bytes data = 1;
+}
+
+message Empty {
+}
+
+// Two methods with the same signature, so only their names tell them apart.
+service Pair {
+  rpc Left(Scalar) returns (Scalar);
+  rpc Right(Scalar) returns (Scalar);
+}
+
+service Calculator {
+  rpc Add(Scalar) returns (Scalar);
+  rpc Echo(Blob) returns (Blob);
+  rpc Describe(Nested) returns (Text);
+  rpc Nothing(Empty) returns (Empty);
+  rpc Watch(Scalar) returns (stream Scalar);
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package test.swapped;
+
+option csharp_namespace = "GrpcNet.Protobuf.Tests.Swapped";
+
+import "test.proto";
+
+// The methods of test.Pair, declared in the opposite order.
+service Pair {
+  rpc Right(test.Scalar) returns (test.Scalar);
+  rpc Left(test.Scalar) returns (test.Scalar);
+}

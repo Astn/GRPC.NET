@@ -221,35 +221,76 @@ namespace GrpcNet
     public sealed class GrpcProcessorBuilder
     {
         private readonly List<MethodEntry> _entries = new List<MethodEntry>();
+        private readonly HashSet<string> _paths = new HashSet<string>(StringComparer.Ordinal);
+        private readonly List<BoundMethod> _bindings = new List<BoundMethod>();
+        private readonly List<Action<IReadOnlyList<BoundMethod>, ICollection<string>>> _checks = new List<Action<IReadOnlyList<BoundMethod>, ICollection<string>>>();
 
         /// <summary>Limits and policies for the processor being built.</summary>
         public GrpcProcessorOptions Options { get; } = new GrpcProcessorOptions();
 
+        /// <summary>The methods registered so far, in registration order.</summary>
+        public IReadOnlyList<BoundMethod> Bindings => _bindings;
+
         /// <summary>
         /// Registers a unary method at <paramref name="path"/> (<c>/package.Service/Method</c>). This is the low-level
-        /// registration that typed bindings build on.
+        /// registration that typed bindings build on. <paramref name="contract"/> is what the binding claims to implement,
+        /// kept for the registered checks only. Throws when the path is already bound.
         /// </summary>
         public GrpcProcessorBuilder AddUnary<TRequest, TResponse, TRequestCodec, TResponseCodec>(
-            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler)
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler, object? contract = null)
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
             ValidatePath(path);
             if (handler == null) throw new ArgumentNullException(nameof(handler));
-            _entries.Add(new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler));
+            if (!_paths.Add(path))
+            {
+                throw new InvalidOperationException("The method '" + path + "' is bound more than once.");
+            }
+
+            var entry = new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract);
+            _entries.Add(entry);
+            _bindings.Add(entry.Binding);
             return this;
         }
 
-        /// <summary>Validates the options, builds the method table and returns the processor. Throws when a path is bound twice.</summary>
-        public GrpcProcessor Build()
+        /// <summary>
+        /// Adds a check that <see cref="Check"/> and <see cref="Build()"/> run over every registered method. A check reports
+        /// each problem it finds by adding a message; it must not change the builder.
+        /// </summary>
+        public GrpcProcessorBuilder AddCheck(Action<IReadOnlyList<BoundMethod>, ICollection<string>> check)
         {
-            GrpcProcessorOptions options = Options.Clone();
-            options.Validate();
-            return new GrpcProcessor(new MethodTable(_entries), options);
+            _checks.Add(check ?? throw new ArgumentNullException(nameof(check)));
+            return this;
         }
 
-        internal GrpcProcessor Build(MethodTable.PathHasher hasher)
+        /// <summary>Runs every registered check and returns all the problems found, without building. Empty when all pass.</summary>
+        public IReadOnlyList<string> Check()
         {
+            var problems = new List<string>();
+            foreach (Action<IReadOnlyList<BoundMethod>, ICollection<string>> check in _checks)
+            {
+                check(_bindings, problems);
+            }
+
+            return problems;
+        }
+
+        /// <summary>
+        /// Runs the checks, validates the options, builds the method table and returns the processor. Throws, listing every
+        /// problem, when a check fails.
+        /// </summary>
+        public GrpcProcessor Build() => Build(null);
+
+        internal GrpcProcessor Build(MethodTable.PathHasher? hasher)
+        {
+            IReadOnlyList<string> problems = Check();
+            if (problems.Count > 0)
+            {
+                string separator = Environment.NewLine + "  ";
+                throw new InvalidOperationException("The bound methods do not match their contracts:" + separator + string.Join(separator, problems));
+            }
+
             GrpcProcessorOptions options = Options.Clone();
             options.Validate();
             return new GrpcProcessor(new MethodTable(_entries, hasher), options);
