@@ -37,8 +37,11 @@ namespace GrpcNet
         where TResponseCodec : struct, IMessageCodec<TResponse>
     {
         private readonly Func<TRequest, TResponse> _handler;
-        private TRequestCodec _requestCodec;
-        private TResponseCodec _responseCodec;
+
+        // The codecs as bound. Each call works on its own copies, so a codec with mutable state cannot leak it between
+        // concurrent or nested calls.
+        private readonly TRequestCodec _requestCodec;
+        private readonly TResponseCodec _responseCodec;
 
         internal UnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler)
             : base(path, MethodKind.Unary)
@@ -50,10 +53,11 @@ namespace GrpcNet
 
         internal override GrpcStatus InvokeUnary(in CallHead head, ReadOnlySpan<byte> payload, IBufferWriter<byte> output, GrpcProcessorOptions options)
         {
+            TRequestCodec requestCodec = _requestCodec;
             TRequest request;
             try
             {
-                request = _requestCodec.Decode(payload);
+                request = requestCodec.Decode(payload);
             }
             catch (Exception ex)
             {
@@ -75,7 +79,8 @@ namespace GrpcNet
                 return new GrpcStatus(StatusCode.DeadlineExceeded);
             }
 
-            return ResponseWriter.Write(ref _responseCodec, in response, output, options);
+            TResponseCodec responseCodec = _responseCodec;
+            return ResponseWriter.Write(ref responseCodec, in response, output, options);
         }
     }
 }

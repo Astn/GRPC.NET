@@ -71,6 +71,25 @@ namespace GrpcNet.Tests
         }
     }
 
+    /// <summary>
+    /// A codec with mutable state: Size counts its calls and Encode writes the count. A call that starts from the codec as
+    /// bound, and keeps one copy from Size to Encode, always writes 1.
+    /// </summary>
+    internal struct CountingCodec : IMessageCodec<byte[]>
+    {
+        private int _sizeCalls;
+
+        public byte[] Decode(ReadOnlySpan<byte> payload) => payload.ToArray();
+
+        public int Size(in byte[] message)
+        {
+            _sizeCalls++;
+            return 1;
+        }
+
+        public void Encode(in byte[] message, int size, Span<byte> destination) => destination[0] = (byte)_sizeCalls;
+    }
+
     /// <summary>Records sink events.</summary>
     internal struct RecordingSink : ICallSink
     {

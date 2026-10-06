@@ -16,11 +16,11 @@ namespace GrpcNet
         private readonly int[] _slots;          // entry index + 1; 0 marks an empty slot
         private readonly int[] _slotHashes;
         private readonly int _mask;
-        private readonly PathHasher _hasher;
+        private readonly PathHasher? _testHasher;   // null in production: the default hash is a direct call
 
         internal MethodTable(IReadOnlyList<MethodEntry> entries, PathHasher? hasher = null)
         {
-            _hasher = hasher ?? DefaultHash;
+            _testHasher = hasher;
             _entries = new MethodEntry[entries.Count];
             int capacity = 4;
             while (capacity < entries.Count * 2)
@@ -35,14 +35,14 @@ namespace GrpcNet
             for (int i = 0; i < entries.Count; i++)
             {
                 MethodEntry entry = entries[i];
-                if (Find(entry.PathUtf8, _hasher(entry.PathUtf8)) >= 0)
+                if (Find(entry.PathUtf8, Hash(entry.PathUtf8)) >= 0)
                 {
                     throw new InvalidOperationException("The method '" + entry.Path + "' is bound more than once.");
                 }
 
                 _entries[i] = entry;
                 entry.Id = new MethodId(i);
-                int hash = _hasher(entry.PathUtf8);
+                int hash = Hash(entry.PathUtf8);
                 int slot = hash & _mask;
                 while (_slots[slot] != 0)
                 {
@@ -58,9 +58,11 @@ namespace GrpcNet
 
         internal MethodId Resolve(ReadOnlySpan<byte> pathUtf8)
         {
-            int index = Find(pathUtf8, _hasher(pathUtf8));
+            int index = Find(pathUtf8, Hash(pathUtf8));
             return index < 0 ? MethodId.None : new MethodId(index);
         }
+
+        private int Hash(ReadOnlySpan<byte> pathUtf8) => _testHasher is null ? DefaultHash(pathUtf8) : _testHasher(pathUtf8);
 
         internal MethodEntry? Get(MethodId id)
         {

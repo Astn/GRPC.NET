@@ -6,8 +6,10 @@ namespace GrpcNet
 {
     /// <summary>
     /// The transport-agnostic core. A host resolves the method, hands over the request body, and carries the framed response
-    /// bytes and the status back out. <see cref="Process{TSink}(in CallHead, ReadOnlySpan{byte}, IBufferWriter{byte}, ref TSink)"/>
-    /// is re-entrant, never flushes, never awaits, and allocates nothing beyond what the codec allocates for the messages.
+    /// bytes and the status back out. Processing is re-entrant, never flushes and never awaits. A contiguous request body with
+    /// a response written as one span allocates nothing beyond what the codec allocates for the messages. A segmented body
+    /// is copied into per-thread scratch (allocated once per thread) or, when that is busy or too small, a pooled buffer; a
+    /// response above the host's contiguous cap is staged in a pooled buffer.
     /// </summary>
     public sealed class GrpcProcessor
     {
@@ -72,12 +74,18 @@ namespace GrpcNet
                 return new GrpcStatus(StatusCode.Unimplemented);
             }
 
-            if (!MessageFraming.TryReadPrefix(body, out bool compressed, out uint length))
+            GrpcStatus rejected = CheckCall(entry, in head);
+            if (rejected.Code != StatusCode.OK)
+            {
+                return rejected;
+            }
+
+            if (!MessageFraming.TryReadPrefix(body, out _, out uint length))
             {
                 return Malformed("The request body does not contain a message prefix.");
             }
 
-            GrpcStatus rejected = CheckFrame(entry, in head, body[0], length, body.Length);
+            rejected = CheckFrame(body[0], length, body.Length);
             if (rejected.Code != StatusCode.OK)
             {
                 return rejected;
@@ -94,13 +102,19 @@ namespace GrpcNet
                 return new GrpcStatus(StatusCode.Unimplemented);
             }
 
-            if (!MessageFraming.TryReadPrefix(in body, out bool compressed, out uint length))
+            GrpcStatus rejected = CheckCall(entry, in head);
+            if (rejected.Code != StatusCode.OK)
+            {
+                return rejected;
+            }
+
+            if (!MessageFraming.TryReadPrefix(in body, out _, out uint length))
             {
                 return Malformed("The request body does not contain a message prefix.");
             }
 
             byte flag = body.FirstSpan.Length > 0 ? body.FirstSpan[0] : FirstByte(in body);
-            GrpcStatus rejected = CheckFrame(entry, in head, flag, length, body.Length);
+            rejected = CheckFrame(flag, length, body.Length);
             if (rejected.Code != StatusCode.OK)
             {
                 return rejected;
@@ -140,18 +154,19 @@ namespace GrpcNet
             }
         }
 
-        private GrpcStatus CheckFrame(MethodEntry entry, in CallHead head, byte flag, uint length, long bodyLength)
+        // The call is checked before its body, so an expired call ends with DEADLINE_EXCEEDED whatever the body holds.
+        private GrpcStatus CheckCall(MethodEntry entry, in CallHead head)
         {
             if (entry.Kind != MethodKind.Unary)
             {
                 return Malformed("The method is not unary; the host must use the streaming path.");
             }
 
-            if (head.IsPastDeadline)
-            {
-                return new GrpcStatus(StatusCode.DeadlineExceeded);
-            }
+            return head.IsPastDeadline ? new GrpcStatus(StatusCode.DeadlineExceeded) : GrpcStatus.Ok;
+        }
 
+        private GrpcStatus CheckFrame(byte flag, uint length, long bodyLength)
+        {
             if (flag > 1)
             {
                 return Malformed("The message prefix has an invalid compressed flag.");

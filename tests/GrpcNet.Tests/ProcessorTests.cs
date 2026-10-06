@@ -150,6 +150,37 @@ namespace GrpcNet.Tests
             Assert.That(innerResult, Is.EqualTo(innerFrame));
         }
 
+        [Test]
+        public void EachCallStartsFromTheCodecAsBound()
+        {
+            var builder = new GrpcProcessorBuilder();
+            GrpcProcessor? processor = null;
+            byte[] nested = Array.Empty<byte>();
+            builder.AddUnary<byte[], byte[], CountingCodec, CountingCodec>("/test.Count/Count", default, default, request =>
+            {
+                if (request.Length == 1)
+                {
+                    var innerSink = new RecordingSink();
+                    var innerOutput = new ArrayBufferWriter<byte>();
+                    processor!.Process(new CallHead(processor.Resolve("/test.Count/Count"u8)), Frames.Frame(new byte[2]), innerOutput, ref innerSink);
+                    nested = innerOutput.WrittenSpan.ToArray();
+                }
+
+                return request;
+            });
+            processor = builder.Build();
+            MethodId id = processor.Resolve("/test.Count/Count"u8);
+
+            for (int i = 0; i < 3; i++)
+            {
+                var sink = new RecordingSink();
+                var output = new ArrayBufferWriter<byte>();
+                Assert.That(processor.Process(new CallHead(id), Frames.Frame(new byte[1]), output, ref sink).Code, Is.EqualTo(StatusCode.OK));
+                Assert.That(output.WrittenSpan.ToArray(), Is.EqualTo(Frames.Frame(new byte[] { 1 })), $"call {i}");
+                Assert.That(nested, Is.EqualTo(Frames.Frame(new byte[] { 1 })), $"nested call {i}");
+            }
+        }
+
         private static object[] MalformedBodies() => new object[]
         {
             new object[] { "empty", Array.Empty<byte>(), StatusCode.Internal },
@@ -207,6 +238,18 @@ namespace GrpcNet.Tests
             Assert.That(h.Run(Frames.Frame(new byte[1]), past).Code, Is.EqualTo(StatusCode.DeadlineExceeded));
             Assert.That(_runs, Is.EqualTo(0));
             Assert.That(h.Output.WrittenCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void ExpiredCallIsDeadlineExceededWhateverItsBodyHolds()
+        {
+            Harness h = Echo();
+            long past = Environment.TickCount64 - 1;
+            Assert.That(h.Run(Array.Empty<byte>(), past).Code, Is.EqualTo(StatusCode.DeadlineExceeded));
+            Assert.That(h.Run(new byte[] { 0, 0 }, past).Code, Is.EqualTo(StatusCode.DeadlineExceeded));
+            Assert.That(h.Run(Frames.Frame(new byte[3], flag: 2), past).Code, Is.EqualTo(StatusCode.DeadlineExceeded));
+            Assert.That(h.RunSequence(Frames.Split(new byte[] { 0, 0, 0 }, 1), past).Code, Is.EqualTo(StatusCode.DeadlineExceeded));
+            Assert.That(_runs, Is.EqualTo(0));
         }
 
         [Test]

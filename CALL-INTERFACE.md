@@ -81,7 +81,7 @@ public sealed class GrpcProcessor
 }
 ```
 
-`Process` guarantees what the hosts rely on: it is re-entrant, allocates nothing beyond what the codec allocates for the messages, never flushes, never awaits, and writes into whatever `IBufferWriter<byte>` the host passes. On the built-in host that writer is the connection's send buffer itself.
+`Process` guarantees what the hosts rely on: it is re-entrant, never flushes, never awaits, and writes into whatever `IBufferWriter<byte>` the host passes. On the common path, a contiguous request body and a response written as one span, it allocates nothing beyond what the codec allocates for the messages. Two paths use buffers, and E0 reports their cost separately: a split request body is copied into per-thread scratch (allocated once per thread) or, when that is busy or too small, a pooled buffer; a response above the host's contiguous cap is staged in a pooled buffer (see [The request path](#the-request-path) and [The response path](#the-response-path)). On the built-in host that writer is the connection's send buffer itself.
 
 There is no batch API. The host's read loop is the batch: it calls `Process` for every complete request in a read pass, then flushes once.
 
