@@ -36,7 +36,7 @@ The gRPC rows include the .NET client, which ran on the same cores as the server
 ## Open design questions
 
 1. **Contract.** Services could be defined in `.proto` files with generated code, in C# first with the schema derived from attributes, or both.
-2. **The core's call interface.** It must cover streaming as well as unary calls, so the core accepts and produces message sequences, not one request and one reply. It must also say how a host passes deadlines, cancellation and metadata in, and how trailers come back.
+2. **The core's call interface.** It must cover streaming as well as unary calls, so the core accepts and produces message sequences, not one request and one reply. It must also say how a host passes deadlines, cancellation and metadata in, and how trailers come back. [CALL-INTERFACE.md](CALL-INTERFACE.md) is the current draft.
 3. **Serialization.** Messages could be encoded with Google.Protobuf or with a built-in Protocol Buffers codec, as jsmn is built in for JSON-RPC.NET.
 4. **Call types.** These are unary, server streaming, client streaming and bidirectional streaming. The first release needs a subset of them.
 5. **gRPC features.** These include deadlines, metadata, compression, rich status details, health checking and reflection, each to be supported or deferred.
