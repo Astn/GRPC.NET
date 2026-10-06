@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>GrpcNet</RootNamespace>
+    <Description>Transport-agnostic gRPC server core: framing, method dispatch, status mapping and the codec seam. No package dependencies.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GrpcNet.Tests" />
+  </ItemGroup>
+</Project>
