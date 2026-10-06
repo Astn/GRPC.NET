@@ -278,7 +278,17 @@ A failed check stops startup with the method's full name and the mismatch. The s
 
 **Execution options.** `Dispatch` or `Inline` (see [Where methods run](#where-methods-run)) goes on the lambda as an attribute, or as an argument to `Bind`.
 
-**Cost on the hot path.** None. Checks run once, at registration. A lambda becomes one delegate field inside the method's struct invoker, so each call costs one indirect call. A non-capturing lambda allocates nothing; a capturing one allocates once, at bind time.
+**Cost on the hot path.** Checks run once, at registration. A naive design pays two indirect calls per request: one from the method table to the method's invoker, and one through the handler's delegate. The generator removes both wherever the target is visible at compile time.
+
+- **One generated invoker struct per method**, such as `Calculator.AddInvoker`. Message types are classes, so a single generic invoker over `<AddRequest, AddReply>` would get shared generic code: one call site for every method in the application. A distinct struct per method gets its own compiled code.
+- **Direct calls when the target is known.**
+  - For attribute classes, the invoker calls `_service.Add(request)` on a sealed class. That is a direct call the JIT can inline.
+  - For a method group, as in `Bind(Calculator.Add, CalcImpl.Add)`, an interceptor (the source-generator feature ASP.NET Core's minimal-API generator uses) sees the named target and emits a direct call. No delegate remains.
+- **A generated dispatcher.** For services bound in the application's own compilation, the generator can emit a `switch (methodId)` that calls each invoker directly. A jump-table branch replaces the indirect call, and the JIT can inline decoding, the handler and encoding as one body. Services from other assemblies use the method table.
+- **Lambdas** keep their delegate. Dynamic PGO profiles delegate call sites and emits a guarded direct call, inlining the target when one target dominates; because each method has its own invoker, each lambda has its own call site. Native AOT has no dynamic PGO, so lambdas stay indirect there, while classes and method groups stay direct. Copying a lambda's source into generated code is rejected: it breaks on captures, `using` aliases and other context local to the user's file.
+- **Expected size of the gain.** An indirect call costs on the order of 1 to 2 ns, against a per-call budget of a few microseconds on a fast host, so the direct benefit is well under 0.1%. The real gain is that small methods inline into the decode and encode path.
+- **Measured before it is kept.** The per-method invokers and direct calls are adopted; they are nearly free once the generator exists. The `switch` dispatcher is kept only if E0 shows a gain beyond run noise. E0 compares nanoseconds per call for a plain delegate, a delegate devirtualized by PGO, a direct call, and the generated `switch`.
+- **Allocations.** A non-capturing lambda allocates nothing; a capturing one allocates once, at bind time.
 
 **Lifetimes and sessions.**
 - Services are singletons by default. Scoped and transient lifetimes, resolved per call as in JSON-RPC.NET, are an opt-in; E0 measures what the per-call scope costs.
@@ -302,7 +312,7 @@ public interface IMessageCodec<T>
 ```
 
 - **Milestone 1** uses Google.Protobuf with `protoc`-generated messages through this seam: `ParseFrom` on a span, `CalculateSize`, and `WriteTo` into exactly `size` bytes. The adapter adds no wrapper or context object per call, but Google.Protobuf still allocates the message and its strings, `bytes` and repeated fields; those allocations are measured for each message shape. The codec is deliberately not optimized in milestone 1, so the host experiments measure the host. It also keeps the benchmark control of using the same codec on both sides.
-- **Invokers.** Each method binds a closed `TCodec : struct` and `TInvoker : struct` pair once, into the method table: no reflection, no delegate allocation and no generic discovery per call, as in Tsavorite's struct callbacks.
+- **Invokers.** Each method binds a closed `TCodec : struct` and a generated per-method `TInvoker : struct` once, into the method table: no reflection, no delegate allocation and no generic discovery per call, as in Tsavorite's struct callbacks. See [Service registration](#service-registration) for how direct calls and the generated dispatcher remove the indirect calls.
 - **Contracts.** Services are implemented in C#, as lambdas or attribute-marked classes, and bound to typed method objects generated from the `.proto` (see [Service registration](#service-registration)). The method table is built at startup. Messages are defined in `.proto`, the only wire contract, which foreign clients need anyway. A C#-first message schema is not planned: it would remove no hot-path work and double the conformance work.
 - **Ownership.** Messages own their data by default. Borrowed `ref struct` views exist only in a synchronous fast profile, `void M(in TView request, ref TWriter response)` or `TResp M(in TView request)`, and arrive with the generated codec. Message objects are not pooled.
 - **The generated codec** comes after milestone 1, generated from `.proto`, and only if profiling shows that, on any representative message shape, either:
