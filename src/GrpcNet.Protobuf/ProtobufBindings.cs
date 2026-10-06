@@ -21,9 +21,10 @@ namespace GrpcNet.Protobuf
         {
             if (builder == null) throw new ArgumentNullException(nameof(builder));
             if (method == null) throw new ArgumentNullException(nameof(method));
-            AddService(builder, method.Descriptor.Service, requireComplete: false);
-            return builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+            // The binding is validated and added first, so a rejected Bind leaves no service registration behind.
+            builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
                 method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
         /// <summary>

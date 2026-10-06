@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace GrpcNet
 {
@@ -223,13 +224,21 @@ namespace GrpcNet
         private readonly List<MethodEntry> _entries = new List<MethodEntry>();
         private readonly HashSet<string> _paths = new HashSet<string>(StringComparer.Ordinal);
         private readonly List<BoundMethod> _bindings = new List<BoundMethod>();
+        private readonly ReadOnlyCollection<BoundMethod> _bindingsView;
         private readonly List<Action<IReadOnlyList<BoundMethod>, ICollection<string>>> _checks = new List<Action<IReadOnlyList<BoundMethod>, ICollection<string>>>();
+
+        /// <summary>Creates an empty builder.</summary>
+        public GrpcProcessorBuilder()
+        {
+            // Callers and checks see a read-only view, so nothing can hide a binding from the checks.
+            _bindingsView = _bindings.AsReadOnly();
+        }
 
         /// <summary>Limits and policies for the processor being built.</summary>
         public GrpcProcessorOptions Options { get; } = new GrpcProcessorOptions();
 
         /// <summary>The methods registered so far, in registration order.</summary>
-        public IReadOnlyList<BoundMethod> Bindings => _bindings;
+        public IReadOnlyList<BoundMethod> Bindings => _bindingsView;
 
         /// <summary>
         /// Registers a unary method at <paramref name="path"/> (<c>/package.Service/Method</c>). This is the low-level
@@ -270,7 +279,7 @@ namespace GrpcNet
             var problems = new List<string>();
             foreach (Action<IReadOnlyList<BoundMethod>, ICollection<string>> check in _checks)
             {
-                check(_bindings, problems);
+                check(_bindingsView, problems);
             }
 
             return problems;

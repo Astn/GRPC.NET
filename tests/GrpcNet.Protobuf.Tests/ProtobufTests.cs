@@ -362,6 +362,32 @@ namespace GrpcNet.Protobuf.Tests
         }
 
         [Test]
+        public void BindingsCannotBeHiddenFromTheChecks()
+        {
+            var builder = new GrpcProcessorBuilder()
+                .AddService(CalculatorService, requireComplete: false)
+                .AddUnary<Blob, Blob, ProtobufCodec<Blob>, ProtobufCodec<Blob>>("/test.Calculator/Add", Codec(Blob.Parser), Codec(Blob.Parser), r => r);
+
+            Assert.That(builder.Bindings, Is.Not.InstanceOf<List<BoundMethod>>());
+            Assert.Throws<NotSupportedException>(() => ((IList<BoundMethod>)builder.Bindings).Clear());
+            builder.AddCheck((bindings, problems) => Assert.Throws<NotSupportedException>(() => ((IList<BoundMethod>)bindings).Clear()));
+
+            var ex = Assert.Throws<InvalidOperationException>(() => builder.Build());
+            Assert.That(ex!.Message, Does.Contain("/test.Calculator/Add").And.Contain("takes"));
+        }
+
+        [Test]
+        public void RejectedBindLeavesNoServiceRegistration()
+        {
+            var builder = new GrpcProcessorBuilder();
+            Assert.Throws<ArgumentNullException>(() => builder.Bind(Calculator.Add, null!));
+
+            // Had the failed Bind registered test.Calculator, this wrong-typed raw binding would be reported.
+            builder.AddUnary<Blob, Blob, ProtobufCodec<Blob>, ProtobufCodec<Blob>>("/test.Calculator/Add", Codec(Blob.Parser), Codec(Blob.Parser), r => r);
+            Assert.That(builder.Check(), Is.Empty);
+        }
+
+        [Test]
         public void MethodsOfUnregisteredServicesAreNotChecked()
         {
             var builder = new GrpcProcessorBuilder()
