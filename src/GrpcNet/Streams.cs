@@ -321,8 +321,8 @@ namespace GrpcNet
             }
         }
 
-        // Completes the pending MoveNextAsync; returns false when more data is needed. The reader is released before the
-        // continuation runs, so the continuation can read again.
+        // Completes the pending MoveNextAsync; returns false when more data is needed. The reader stays claimed until the
+        // awaiter takes the result, so no other read can reset the source between completion and consumption.
         private bool Complete(Step step)
         {
             if (step == Step.NeedMore)
@@ -330,7 +330,6 @@ namespace GrpcNet
                 return false;
             }
 
-            Volatile.Write(ref _busy, 0);
             switch (step)
             {
                 case Step.Message:
@@ -473,7 +472,24 @@ namespace GrpcNet
             return 0;
         }
 
-        bool IValueTaskSource<bool>.GetResult(short token) => _source.GetResult(token);
+        bool IValueTaskSource<bool>.GetResult(short token)
+        {
+            // A stale token or a result not yet published throws without touching the claim.
+            if (token != _source.Version || _source.GetStatus(token) == ValueTaskSourceStatus.Pending)
+            {
+                return _source.GetResult(token);
+            }
+
+            try
+            {
+                return _source.GetResult(token);
+            }
+            finally
+            {
+                // The result is consumed: release the reader, so the continuation can read again.
+                Volatile.Write(ref _busy, 0);
+            }
+        }
 
         ValueTaskSourceStatus IValueTaskSource<bool>.GetStatus(short token) => _source.GetStatus(token);
 

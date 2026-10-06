@@ -212,6 +212,42 @@ namespace GrpcNet.Tests
         }
     }
 
+    internal sealed class ThrowingReader : PipeReader
+    {
+        private readonly bool _inTryRead;
+
+        public ThrowingReader(bool inTryRead) => _inTryRead = inTryRead;
+
+        public override bool TryRead(out ReadResult result)
+        {
+            if (_inTryRead)
+            {
+                throw new IOException("TryRead failed.");
+            }
+
+            result = default;
+            return false;
+        }
+
+        public override ValueTask<ReadResult> ReadAsync(CancellationToken cancellationToken = default) => throw new IOException("ReadAsync failed.");
+
+        public override void AdvanceTo(SequencePosition consumed)
+        {
+        }
+
+        public override void AdvanceTo(SequencePosition consumed, SequencePosition examined)
+        {
+        }
+
+        public override void CancelPendingRead()
+        {
+        }
+
+        public override void Complete(Exception? exception = null)
+        {
+        }
+    }
+
     public class StreamingTests
     {
         private const string Path = "/test.Stream/Call";
@@ -806,6 +842,70 @@ namespace GrpcNet.Tests
                 seen(ex);
             }
         }));
+
+        [Test]
+        public async Task CompletedReadStaysClaimedUntilItsResultIsTaken()
+        {
+            bool refused = false;
+            var taken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            GrpcProcessor processor = Build(b => b.AddDuplex<int, int, IntCodec, IntCodec>(Path, default, default, async (reader, writer, ct) =>
+            {
+                ValueTask<bool> first = reader.MoveNextAsync();
+                Assert.That(first.IsCompleted, Is.False, "nothing has been sent yet");
+                long until = Environment.TickCount64 + 5000;
+                while (!first.IsCompleted && Environment.TickCount64 < until)
+                {
+                    await Task.Delay(1);
+                }
+
+                // Completed but not yet taken: a second read must not reset the source under it.
+                Assert.That(first.IsCompleted, Is.True);
+                try
+                {
+                    _ = reader.MoveNextAsync();
+                }
+                catch (InvalidOperationException)
+                {
+                    refused = true;
+                }
+
+                if (!refused)
+                {
+                    taken.SetResult();
+                    return;
+                }
+
+                Assert.That(await first, Is.True);
+                Assert.That(reader.Current, Is.EqualTo(4));
+                taken.SetResult();
+                Assert.That(await reader.MoveNextAsync(), Is.False);
+            }));
+
+            var requestPipe = new Pipe();
+            var record = new SinkRecord();
+            Task call = processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), requestPipe.Reader, new Pipe().Writer, new SharedSink(record)).AsTask();
+            await Task.Delay(20);
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(4));
+            await taken.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            requestPipe.Writer.Complete();
+            await call.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.That(refused, Is.True);
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.OK));
+        }
+
+        [TestCase(true)]
+        [TestCase(false)]
+        public async Task RequestPipeThrowingSynchronouslyEndsTheCallInternal(bool inTryRead)
+        {
+            Exception? seen = null;
+            GrpcProcessor processor = SwallowingDuplex(ex => seen = ex);
+            var record = new SinkRecord();
+            await processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8)), new ThrowingReader(inTryRead), new Pipe().Writer, new SharedSink(record));
+            Assert.That(seen, Is.InstanceOf<IOException>());
+            Assert.That(seen!.Message, Is.EqualTo(inTryRead ? "TryRead failed." : "ReadAsync failed."));
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.Internal));
+        }
 
         [Test]
         public async Task RequestPipeFailureEndsTheCallInternalEvenWhenSwallowed()
