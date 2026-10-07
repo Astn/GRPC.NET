@@ -117,9 +117,9 @@ namespace GrpcNet.Protobuf
 
                 // A unary handler is made from a method object; one made from another method, even one with the same types,
                 // would bind the wrong code.
-                if (handler is IUnaryHandler unary && !ReferenceEquals(unary.Origin, methods[i]))
+                if (handler is IUnaryHandler { Origin: GrpcMethod origin } && !ReferenceEquals(origin, methods[i]))
                 {
-                    throw new ArgumentException("The binder for '" + service.FullName + "' has a handler for '" + names[i] + "' made from '" + unary.Origin!.Path + "'.", nameof(handlers));
+                    throw new ArgumentException("The binder for '" + service.FullName + "' has a handler for '" + names[i] + "' made from '" + origin.Path + "'.", nameof(handlers));
                 }
             }
 

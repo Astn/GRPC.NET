@@ -116,23 +116,27 @@ namespace GrpcNet.Generator.EndToEnd.Tests
         public void BinderWithAnEmptyUnaryHandlerBindsNothing()
         {
             Shop.Shop.Binder binder = ShopBinder();
-            binder = new Shop.Shop.Binder { Get = default, Find = binder.Find, List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
+            // Find is bound after Get, so a check made only when Find is bound would leave Get bound.
+            binder = new Shop.Shop.Binder { Get = binder.Get, Find = default, List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
             var builder = new GrpcProcessorBuilder();
-            ArgumentException? ex = Assert.Throws<ArgumentException>(() => builder.Bind(binder));
-            Assert.That(ex!.Message, Does.Contain("no handler for 'Get'"));
-            Assert.That(builder.Bindings, Is.Empty);
+            Exception? ex = Assert.Catch(() => builder.Bind(binder));
+            Assert.That(builder.Bindings, Is.Empty, "nothing is bound, not even Get");
+            Assert.That(ex, Is.TypeOf<ArgumentException>());
+            Assert.That(ex!.Message, Does.Contain("no handler for 'Find'"));
         }
 
         [Test]
         public void BinderWithAHandlerMadeFromAnotherMethodBindsNothing()
         {
-            // Find has Get's request and response types, so this compiles; the binder must still refuse it.
+            // Get has Find's request and response types, so this compiles; the binder must still refuse it. Find is bound after
+            // Get, so a check made only when Find is bound would leave Get bound.
             Shop.Shop.Binder binder = ShopBinder();
-            binder = new Shop.Shop.Binder { Get = Shop.Shop.Find.Sync(q => new Item()), Find = binder.Find, List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
+            binder = new Shop.Shop.Binder { Get = binder.Get, Find = Shop.Shop.Get.Sync(q => new Item()), List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
             var builder = new GrpcProcessorBuilder();
-            ArgumentException? ex = Assert.Throws<ArgumentException>(() => builder.Bind(binder));
-            Assert.That(ex!.Message, Does.Contain("handler for 'Get' made from '/shop.Shop/Find'"));
-            Assert.That(builder.Bindings, Is.Empty);
+            Exception? ex = Assert.Catch(() => builder.Bind(binder));
+            Assert.That(builder.Bindings, Is.Empty, "nothing is bound, not even Get");
+            Assert.That(ex, Is.TypeOf<ArgumentException>());
+            Assert.That(ex!.Message, Does.Contain("handler for 'Find' made from '/shop.Shop/Get'"));
         }
 
         [Test]
