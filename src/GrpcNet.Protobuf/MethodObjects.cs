@@ -88,6 +88,18 @@ namespace GrpcNet.Protobuf
             ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
         }
 
+        /// <summary>A synchronous handler for this method, for a generated binder. Its types come from the method.</summary>
+        public UnaryHandler<TRequest, TResponse> Sync(Func<TRequest, TResponse> handler)
+            => new UnaryHandler<TRequest, TResponse>(this, handler ?? throw new ArgumentNullException(nameof(handler)), null, null);
+
+        /// <summary>An asynchronous handler for this method, for a generated binder.</summary>
+        public UnaryHandler<TRequest, TResponse> Async(Func<TRequest, System.Threading.Tasks.ValueTask<TResponse>> handler)
+            => new UnaryHandler<TRequest, TResponse>(this, null, handler ?? throw new ArgumentNullException(nameof(handler)), null);
+
+        /// <summary>An asynchronous handler for this method that takes the call's cancellation token, for a generated binder.</summary>
+        public UnaryHandler<TRequest, TResponse> Async(Func<TRequest, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<TResponse>> handler)
+            => new UnaryHandler<TRequest, TResponse>(this, null, null, handler ?? throw new ArgumentNullException(nameof(handler)));
+
         internal ProtobufCodec<TRequest> RequestCodec { get; }
 
         internal ProtobufCodec<TResponse> ResponseCodec { get; }

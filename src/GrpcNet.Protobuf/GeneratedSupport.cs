@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
+using Google.Protobuf;
 using Google.Protobuf.Reflection;
 
 namespace GrpcNet.Protobuf
@@ -56,9 +57,43 @@ namespace GrpcNet.Protobuf
             throw new InvalidOperationException("The service '" + serviceFullName + "' is not declared in '" + file.Name + "'. The generated code is out of date with its .proto.");
         }
 
+        /// <summary>Binds a generated binder's unary member in the form it was made in.</summary>
+        public static GrpcProcessorBuilder BindUnary<TRequest, TResponse>(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, UnaryHandler<TRequest, TResponse> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            if (handler.Origin == null)
+            {
+                throw new ArgumentException("The handler for '" + method.Path + "' is empty.", nameof(handler));
+            }
+
+            if (!ReferenceEquals(handler.Origin, method))
+            {
+                throw new ArgumentException("The handler for '" + method.Path + "' was made from '" + handler.Origin.Path + "'.", nameof(handler));
+            }
+
+            if (handler.Sync != null)
+            {
+                return builder.Bind(method, handler.Sync);
+            }
+
+            if (handler.Tokenless != null)
+            {
+                return builder.BindAsync(method, handler.Tokenless);
+            }
+
+            if (handler.WithToken != null)
+            {
+                return builder.BindAsync(method, handler.WithToken);
+            }
+
+            throw new ArgumentException("The handler for '" + method.Path + "' is empty.", nameof(handler));
+        }
+
         /// <summary>
-        /// Checks everything that could reject a binder before anything is bound: every handler is present, no method is
-        /// already bound, and the service is not registered from another descriptor.
+        /// Checks everything that could reject a binder before anything is bound: every handler is present, every unary handler
+        /// was made from its own method object, no method is already bound, and the service is not registered from another
+        /// descriptor.
         /// </summary>
         public static void PreflightService(GrpcProcessorBuilder builder, ServiceDescriptor service, GrpcMethod[] methods, object?[] handlers, string[] names)
         {
@@ -74,9 +109,17 @@ namespace GrpcNet.Protobuf
 
             for (int i = 0; i < handlers.Length; i++)
             {
-                if (handlers[i] == null)
+                object? handler = handlers[i];
+                if (handler == null || (handler is IUnaryHandler { Origin: null }))
                 {
                     throw new ArgumentException("The binder for '" + service.FullName + "' has no handler for '" + names[i] + "'.", nameof(handlers));
+                }
+
+                // A unary handler is made from a method object; one made from another method, even one with the same types,
+                // would bind the wrong code.
+                if (handler is IUnaryHandler unary && !ReferenceEquals(unary.Origin, methods[i]))
+                {
+                    throw new ArgumentException("The binder for '" + service.FullName + "' has a handler for '" + names[i] + "' made from '" + unary.Origin!.Path + "'.", nameof(handlers));
                 }
             }
 

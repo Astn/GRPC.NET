@@ -41,7 +41,12 @@ namespace GrpcNet.Generator.EndToEnd.Tests
 
         private static Shop.Shop.Binder ShopBinder() => new Shop.Shop.Binder
         {
-            Get = q => new Item { Name = "item" + q.Count, Price = new Item.Types.Price { Cents = q.Count * 100 } },
+            Get = Shop.Shop.Get.Sync(q => new Item { Name = "item" + q.Count, Price = new Item.Types.Price { Cents = q.Count * 100 } }),
+            Find = Shop.Shop.Find.Async(async (q, ct) =>
+            {
+                await Task.Delay(1, ct);
+                return new Item { Name = "found" + q.Count };
+            }),
             List = async (q, responses, ct) =>
             {
                 for (int i = 0; i < q.Count; i++)
@@ -66,7 +71,11 @@ namespace GrpcNet.Generator.EndToEnd.Tests
                     await responses.WriteAsync(new Item { Name = items.Current.Name + "!" });
                 }
             },
-            Ping = e => e,
+            Ping = Shop.Shop.Ping.Async(async e =>
+            {
+                await Task.Yield();
+                return e;
+            }),
         };
 
         [Test]
@@ -76,6 +85,8 @@ namespace GrpcNet.Generator.EndToEnd.Tests
 
             Item item = (await CallAsync(processor, Shop.Shop.Get, Item.Parser, new Query { Count = 3 })).Single();
             Assert.That((item.Name, item.Price.Cents), Is.EqualTo(("item3", 300)));
+            Assert.That(processor.IsSynchronousUnary(processor.Resolve(Shop.Shop.Get.PathUtf8.Span)), Is.True, "a Sync handler keeps the synchronous path");
+            Assert.That((await CallAsync(processor, Shop.Shop.Find, Item.Parser, new Query { Count = 7 })).Single().Name, Is.EqualTo("found7"));
 
             List<Item> listed = await CallAsync(processor, Shop.Shop.List, Item.Parser, new Query { Count = 3 });
             Assert.That(listed.Select(i => i.Name), Is.EqualTo(new[] { "item0", "item1", "item2" }));
@@ -94,11 +105,52 @@ namespace GrpcNet.Generator.EndToEnd.Tests
         public void BinderWithAMissingHandlerBindsNothing()
         {
             Shop.Shop.Binder binder = ShopBinder();
-            binder = new Shop.Shop.Binder { Get = binder.Get, List = binder.List, Total = null!, Echo = binder.Echo, Ping = binder.Ping };
+            binder = new Shop.Shop.Binder { Get = binder.Get, Find = binder.Find, List = binder.List, Total = null!, Echo = binder.Echo, Ping = binder.Ping };
             var builder = new GrpcProcessorBuilder();
             ArgumentException? ex = Assert.Throws<ArgumentException>(() => builder.Bind(binder));
             Assert.That(ex!.Message, Does.Contain("no handler for 'Total'"));
             Assert.That(builder.Bindings, Is.Empty);
+        }
+
+        [Test]
+        public void BinderWithAnEmptyUnaryHandlerBindsNothing()
+        {
+            Shop.Shop.Binder binder = ShopBinder();
+            binder = new Shop.Shop.Binder { Get = default, Find = binder.Find, List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
+            var builder = new GrpcProcessorBuilder();
+            ArgumentException? ex = Assert.Throws<ArgumentException>(() => builder.Bind(binder));
+            Assert.That(ex!.Message, Does.Contain("no handler for 'Get'"));
+            Assert.That(builder.Bindings, Is.Empty);
+        }
+
+        [Test]
+        public void BinderWithAHandlerMadeFromAnotherMethodBindsNothing()
+        {
+            // Find has Get's request and response types, so this compiles; the binder must still refuse it.
+            Shop.Shop.Binder binder = ShopBinder();
+            binder = new Shop.Shop.Binder { Get = Shop.Shop.Find.Sync(q => new Item()), Find = binder.Find, List = binder.List, Total = binder.Total, Echo = binder.Echo, Ping = binder.Ping };
+            var builder = new GrpcProcessorBuilder();
+            ArgumentException? ex = Assert.Throws<ArgumentException>(() => builder.Bind(binder));
+            Assert.That(ex!.Message, Does.Contain("handler for 'Get' made from '/shop.Shop/Find'"));
+            Assert.That(builder.Bindings, Is.Empty);
+        }
+
+        [Test]
+        public void BindUnaryOutsideABinderChecksTheHandler()
+        {
+            var builder = new GrpcProcessorBuilder();
+            Assert.That(Assert.Throws<ArgumentException>(() => GeneratedSupport.BindUnary(builder, Shop.Shop.Get, default))!.Message, Does.Contain("is empty"));
+            Assert.That(Assert.Throws<ArgumentException>(() => GeneratedSupport.BindUnary(builder, Shop.Shop.Get, Shop.Shop.Find.Sync(q => new Item())))!.Message,
+                Does.Contain("was made from '/shop.Shop/Find'"));
+            Assert.That(builder.Bindings, Is.Empty);
+        }
+
+        [Test]
+        public void HandlerFactoriesRejectNull()
+        {
+            Assert.Throws<ArgumentNullException>(() => Shop.Shop.Get.Sync(null!));
+            Assert.Throws<ArgumentNullException>(() => Shop.Shop.Get.Async((Func<Query, ValueTask<Item>>)null!));
+            Assert.Throws<ArgumentNullException>(() => Shop.Shop.Get.Async((Func<Query, System.Threading.CancellationToken, ValueTask<Item>>)null!));
         }
 
         [Test]
@@ -117,7 +169,7 @@ namespace GrpcNet.Generator.EndToEnd.Tests
             Assert.That(typeof(Merger).GetMethod("BindService", new[] { typeof(Merger.MergerBase) }), Is.Not.Null);
             Assert.That(Merger.Ping, Is.InstanceOf<UnaryMethod<Note, Note>>());
 
-            GrpcProcessor processor = new GrpcProcessorBuilder().Bind(new Merger.Binder { Ping = n => new Note { Text = n.Text + "!" } }).Build();
+            GrpcProcessor processor = new GrpcProcessorBuilder().Bind(new Merger.Binder { Ping = Merger.Ping.Sync(n => new Note { Text = n.Text + "!" }) }).Build();
             Assert.That(processor.Resolve("/merge.Merger/Ping"u8).IsValid, Is.True);
         }
 

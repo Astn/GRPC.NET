@@ -76,7 +76,9 @@ namespace GrpcNet.Generator
             w.Open();
             foreach (MethodModel method in service.Methods)
             {
-                w.Line("/// <summary>The handler for <c>" + method.Name + "</c>.</summary>");
+                w.Line(method.Kind == CallKind.Unary
+                    ? "/// <summary>The handler for <c>" + method.Name + "</c>, made with <c>" + service.Name + "." + method.Name + ".Sync</c> or <c>.Async</c>.</summary>"
+                    : "/// <summary>The handler for <c>" + method.Name + "</c>.</summary>");
                 w.Line("public required " + Hide(method.Name) + HandlerType(method) + " " + Identifier(method.Name) + " { get; init; }");
                 w.Line();
             }
@@ -105,7 +107,8 @@ namespace GrpcNet.Generator
             w.Line(Protobuf + "GeneratedSupport.PreflightService(builder, service, new " + Protobuf + "GrpcMethod[] { " + methods + " }, new object?[] { " + handlers + " }, new string[] { " + names + " });");
             foreach (MethodModel method in service.Methods)
             {
-                w.Line(Protobuf + "ProtobufBindings.Bind(builder, " + self + "." + Identifier(method.Name) + ", this." + Identifier(method.Name) + ");");
+                string bind = method.Kind == CallKind.Unary ? "GeneratedSupport.BindUnary" : "ProtobufBindings.Bind";
+                w.Line(Protobuf + bind + "(builder, " + self + "." + Identifier(method.Name) + ", this." + Identifier(method.Name) + ");");
             }
 
             w.Line(Protobuf + "ProtobufBindings.AddService(builder, service, requireComplete: true);");
@@ -132,7 +135,7 @@ namespace GrpcNet.Generator
             string response = method.ResponseType;
             return method.Kind switch
             {
-                CallKind.Unary => "global::System.Func<" + request + ", " + response + ">",
+                CallKind.Unary => Protobuf + "UnaryHandler<" + request + ", " + response + ">",
                 CallKind.ServerStreaming => "global::System.Func<" + request + ", " + Core + "MessageWriter<" + response + ">, " + Token + ", " + Task + ">",
                 CallKind.ClientStreaming => "global::System.Func<" + Core + "MessageReader<" + request + ">, " + Token + ", " + Task + "<" + response + ">>",
                 _ => "global::System.Func<" + Core + "MessageReader<" + request + ">, " + Core + "MessageWriter<" + response + ">, " + Token + ", " + Task + ">",

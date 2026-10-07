@@ -21,6 +21,8 @@ message Query {
 
 service Shop {
   rpc Get (Query) returns (Item);
+  // The same types as Get, so a handler made from Find type-checks as Get's.
+  rpc Find (Query) returns (Item);
   rpc List (Query) returns (stream Item);
   rpc Total (stream Item.Price) returns (Item.Price);
   rpc Echo (stream Item) returns (stream Item);

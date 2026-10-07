@@ -263,12 +263,13 @@ A wrong request or response type, or a handler of the wrong call kind, does not 
 ```csharp
 app.MapGrpcNet(new Calculator.Binder
 {
-    Add  = r => new AddReply { Sum = r.A + r.B },
+    Add  = Calculator.Add.Sync(r => new AddReply { Sum = r.A + r.B }),
+    Find = Calculator.Find.Async(async (r, ct) => await store.FindAsync(r.Id, ct)),
     Chat = async (requests, responses, ct) => { /* ... */ },
 });
 ```
 
-Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`. A binder member has one delegate type, and a lambda converts only to a delegate, so a binder's unary members take the synchronous form `Func<TRequest, TResponse>`; an asynchronous unary method is bound with single-method `BindAsync`.
+Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`. A binder's unary member is a `UnaryHandler<TRequest, TResponse>` made with the method object's `Sync` or `Async` factory (the latter with or without the cancellation token): a required member has one type, so it cannot be either of two delegate types, and a factory on the already-typed method object types the lambda without inference, so a wrong type is a plain conversion error. The form is chosen once, when the binder binds; nothing is added per call. At registration the binder refuses an empty handler and a handler made from another method object, even one with the same types. Streaming members are plain delegates, since each streaming kind has one form.
 
 **Attribute-marked classes.** The JSON-RPC.NET style stays:
 

@@ -111,7 +111,7 @@ namespace GrpcNet.Generator.Tests
         private static IEnumerable<TestCaseData> Misuse()
         {
             yield return new TestCaseData(
-                "b.Bind(new Calculator.Binder { Add = r => new AddReply() });",
+                "b.Bind(new Calculator.Binder { Add = Calculator.Add.Sync(r => new AddReply()) });",
                 new[] { "CS9035", "CS9035", "CS9035", "CS9035", "CS9035" }).SetName("a binder missing handlers");
             yield return new TestCaseData(
                 "b.Bind(Calculator.Add, (AddReply r) => new AddReply());",
@@ -132,8 +132,14 @@ namespace GrpcNet.Generator.Tests
                 "b.Bind(Calculator.Count, (AddRequest r) => new AddReply());",
                 new[] { "CS1503" }).SetName("a unary handler for a server-streaming method");
             yield return new TestCaseData(
-                "b.Bind(new Calculator.Binder { Add = r => new AddReply(), Count = (r, w, ct) => default, Sum = (rs, ct) => default, Chat = (rs, ws, ct) => default, Ping = r => r, Share = r => new AddReply() });",
+                "b.Bind(new Calculator.Binder { Add = Calculator.Add.Sync(r => new AddReply()), Count = (r, w, ct) => default, Sum = (rs, ct) => default, Chat = (rs, ws, ct) => default, Ping = Calculator.Ping.Sync(r => r), Share = Calculator.Share.Sync(r => new AddReply()) });",
                 new[] { "CS0029", "CS1662" }).SetName("a binder handler with the wrong response type");
+            yield return new TestCaseData(
+                "b.Bind(new Calculator.Binder { Add = r => new AddReply(), Count = (r, w, ct) => default, Sum = (rs, ct) => default, Chat = (rs, ws, ct) => default, Ping = Calculator.Ping.Sync(r => r), Share = Calculator.Share.Sync(r => new Common.V1.Shared()) });",
+                new[] { "CS1660" }).SetName("a bare lambda for a binder unary member");
+            yield return new TestCaseData(
+                "b.Bind(new Calculator.Binder { Add = Calculator.Ping.Sync(r => r), Count = (r, w, ct) => default, Sum = (rs, ct) => default, Chat = (rs, ws, ct) => default, Ping = Calculator.Ping.Sync(r => r), Share = Calculator.Share.Sync(r => new Common.V1.Shared()) });",
+                new[] { "CS0029" }).SetName("another method's handler of different types");
         }
 
         [TestCaseSource(nameof(Misuse))]
@@ -150,9 +156,11 @@ namespace GrpcNet.Generator.Tests
         public void CorrectUseCompiles()
         {
             string user = "using GrpcNet.Generator.Tests.Calc; using GrpcNet.Protobuf; class User { void M(GrpcNet.GrpcProcessorBuilder b) { "
-                + "b.Bind(new Calculator.Binder { Add = r => new AddReply { Sum = r.A + r.B }, Count = (r, w, ct) => default, Sum = (rs, ct) => default, "
-                + "Chat = async (rs, ws, ct) => { while (await rs.MoveNextAsync()) await ws.WriteAsync(rs.Current); }, Ping = r => r, Share = r => new Common.V1.Shared() }); "
-                + "b.Bind(new Second.Binder { Describe = o => o.Inner }); "
+                + "b.Bind(new Calculator.Binder { Add = Calculator.Add.Sync(r => new AddReply { Sum = r.A + r.B }), Count = (r, w, ct) => default, Sum = (rs, ct) => default, "
+                + "Chat = async (rs, ws, ct) => { while (await rs.MoveNextAsync()) await ws.WriteAsync(rs.Current); }, "
+                + "Ping = Calculator.Ping.Async(async r => { await System.Threading.Tasks.Task.Yield(); return r; }), "
+                + "Share = Calculator.Share.Async(async (r, ct) => { await System.Threading.Tasks.Task.Delay(1, ct); return new Common.V1.Shared(); }) }); "
+                + "b.Bind(new Second.Binder { Describe = Second.Describe.Sync(o => o.Inner) }); "
                 + "b.BindAsync(Calculator.Add, async r => { await System.Threading.Tasks.Task.Yield(); return new AddReply(); }); "
                 + "b.BindAsync(Calculator.Add, async (r, ct) => { await System.Threading.Tasks.Task.Delay(1, ct); return new AddReply(); }); } }";
             Harness.Result result = Harness.Run(Harness.Calc().Append(user).ToArray());

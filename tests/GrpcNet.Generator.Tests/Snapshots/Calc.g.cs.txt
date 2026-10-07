@@ -29,8 +29,8 @@ namespace GrpcNet.Generator.Tests.Calc
         /// <summary>Binds a handler to every method of the service. Each handler is required, so leaving one out does not compile.</summary>
         public sealed class Binder : global::GrpcNet.Protobuf.IServiceBinder
         {
-            /// <summary>The handler for <c>Add</c>.</summary>
-            public required global::System.Func<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Add { get; init; }
+            /// <summary>The handler for <c>Add</c>, made with <c>Calculator.Add.Sync</c> or <c>.Async</c>.</summary>
+            public required global::GrpcNet.Protobuf.UnaryHandler<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Add { get; init; }
 
             /// <summary>The handler for <c>Count</c>.</summary>
             public required global::System.Func<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.MessageWriter<global::GrpcNet.Generator.Tests.Calc.AddReply>, global::System.Threading.CancellationToken, global::System.Threading.Tasks.ValueTask> Count { get; init; }
@@ -41,23 +41,23 @@ namespace GrpcNet.Generator.Tests.Calc
             /// <summary>The handler for <c>Chat</c>.</summary>
             public required global::System.Func<global::GrpcNet.MessageReader<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>, global::GrpcNet.MessageWriter<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>, global::System.Threading.CancellationToken, global::System.Threading.Tasks.ValueTask> Chat { get; init; }
 
-            /// <summary>The handler for <c>Ping</c>.</summary>
-            public required global::System.Func<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty> Ping { get; init; }
+            /// <summary>The handler for <c>Ping</c>, made with <c>Calculator.Ping.Sync</c> or <c>.Async</c>.</summary>
+            public required global::GrpcNet.Protobuf.UnaryHandler<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty> Ping { get; init; }
 
-            /// <summary>The handler for <c>Share</c>.</summary>
-            public required global::System.Func<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared> Share { get; init; }
+            /// <summary>The handler for <c>Share</c>, made with <c>Calculator.Share.Sync</c> or <c>.Async</c>.</summary>
+            public required global::GrpcNet.Protobuf.UnaryHandler<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared> Share { get; init; }
 
             void global::GrpcNet.Protobuf.IServiceBinder.BindTo(global::GrpcNet.GrpcProcessorBuilder builder)
             {
                 global::GrpcNet.Protobuf.GeneratedSupport.EnsureInitialized(typeof(global::GrpcNet.Generator.Tests.Calc.Calculator));
                 global::Google.Protobuf.Reflection.ServiceDescriptor service = global::GrpcNet.Protobuf.GeneratedSupport.FindService(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator");
                 global::GrpcNet.Protobuf.GeneratedSupport.PreflightService(builder, service, new global::GrpcNet.Protobuf.GrpcMethod[] { global::GrpcNet.Generator.Tests.Calc.Calculator.Add, global::GrpcNet.Generator.Tests.Calc.Calculator.Count, global::GrpcNet.Generator.Tests.Calc.Calculator.Sum, global::GrpcNet.Generator.Tests.Calc.Calculator.Chat, global::GrpcNet.Generator.Tests.Calc.Calculator.Ping, global::GrpcNet.Generator.Tests.Calc.Calculator.Share }, new object?[] { this.Add, this.Count, this.Sum, this.Chat, this.Ping, this.Share }, new string[] { "Add", "Count", "Sum", "Chat", "Ping", "Share" });
-                global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Add, this.Add);
+                global::GrpcNet.Protobuf.GeneratedSupport.BindUnary(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Add, this.Add);
                 global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Count, this.Count);
                 global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Sum, this.Sum);
                 global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Chat, this.Chat);
-                global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Ping, this.Ping);
-                global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Share, this.Share);
+                global::GrpcNet.Protobuf.GeneratedSupport.BindUnary(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Ping, this.Ping);
+                global::GrpcNet.Protobuf.GeneratedSupport.BindUnary(builder, global::GrpcNet.Generator.Tests.Calc.Calculator.Share, this.Share);
                 global::GrpcNet.Protobuf.ProtobufBindings.AddService(builder, service, requireComplete: true);
             }
         }
@@ -73,15 +73,15 @@ namespace GrpcNet.Generator.Tests.Calc
         /// <summary>Binds a handler to every method of the service. Each handler is required, so leaving one out does not compile.</summary>
         public sealed class Binder : global::GrpcNet.Protobuf.IServiceBinder
         {
-            /// <summary>The handler for <c>Describe</c>.</summary>
-            public required global::System.Func<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Describe { get; init; }
+            /// <summary>The handler for <c>Describe</c>, made with <c>Second.Describe.Sync</c> or <c>.Async</c>.</summary>
+            public required global::GrpcNet.Protobuf.UnaryHandler<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Describe { get; init; }
 
             void global::GrpcNet.Protobuf.IServiceBinder.BindTo(global::GrpcNet.GrpcProcessorBuilder builder)
             {
                 global::GrpcNet.Protobuf.GeneratedSupport.EnsureInitialized(typeof(global::GrpcNet.Generator.Tests.Calc.Second));
                 global::Google.Protobuf.Reflection.ServiceDescriptor service = global::GrpcNet.Protobuf.GeneratedSupport.FindService(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Second");
                 global::GrpcNet.Protobuf.GeneratedSupport.PreflightService(builder, service, new global::GrpcNet.Protobuf.GrpcMethod[] { global::GrpcNet.Generator.Tests.Calc.Second.Describe }, new object?[] { this.Describe }, new string[] { "Describe" });
-                global::GrpcNet.Protobuf.ProtobufBindings.Bind(builder, global::GrpcNet.Generator.Tests.Calc.Second.Describe, this.Describe);
+                global::GrpcNet.Protobuf.GeneratedSupport.BindUnary(builder, global::GrpcNet.Generator.Tests.Calc.Second.Describe, this.Describe);
                 global::GrpcNet.Protobuf.ProtobufBindings.AddService(builder, service, requireComplete: true);
             }
         }
