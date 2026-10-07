@@ -24,12 +24,14 @@ namespace GrpcNet.Protobuf
             UnaryMethod<TRequest, TResponse> origin,
             Func<TRequest, TResponse>? sync,
             Func<TRequest, ValueTask<TResponse>>? tokenless,
-            Func<TRequest, CancellationToken, ValueTask<TResponse>>? withToken)
+            Func<TRequest, CancellationToken, ValueTask<TResponse>>? withToken,
+            UnaryBinding<TRequest, TResponse>? direct = null)
         {
             Origin = origin;
             Sync = sync;
             Tokenless = tokenless;
             WithToken = withToken;
+            Direct = direct;
         }
 
         /// <summary>The method object this handler was made from; null for a default (empty) handler.</summary>
@@ -41,6 +43,43 @@ namespace GrpcNet.Protobuf
 
         internal Func<TRequest, CancellationToken, ValueTask<TResponse>>? WithToken { get; }
 
+        /// <summary>A generated struct invoker that calls the handler directly, made by an interceptor; null otherwise.</summary>
+        internal UnaryBinding<TRequest, TResponse>? Direct { get; }
+
         GrpcMethod? IUnaryHandler.Origin => Origin;
+    }
+
+    /// <summary>Binds a unary method with a struct invoker whose type is known only where the handler was made.</summary>
+    internal abstract class UnaryBinding<TRequest, TResponse>
+        where TRequest : class, IMessage<TRequest>
+        where TResponse : class, IMessage<TResponse>
+    {
+        internal abstract GrpcProcessorBuilder Bind(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method);
+    }
+
+    internal sealed class SyncUnaryBinding<TRequest, TResponse, TInvoker> : UnaryBinding<TRequest, TResponse>
+        where TRequest : class, IMessage<TRequest>
+        where TResponse : class, IMessage<TResponse>
+        where TInvoker : struct, IUnaryInvoker<TRequest, TResponse>
+    {
+        private readonly TInvoker _invoker;
+
+        internal SyncUnaryBinding(TInvoker invoker) => _invoker = invoker;
+
+        internal override GrpcProcessorBuilder Bind(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method)
+            => GeneratedSupport.BindSyncUnary(builder, method, _invoker);
+    }
+
+    internal sealed class AsyncUnaryBinding<TRequest, TResponse, TInvoker> : UnaryBinding<TRequest, TResponse>
+        where TRequest : class, IMessage<TRequest>
+        where TResponse : class, IMessage<TResponse>
+        where TInvoker : struct, IAsyncUnaryInvoker<TRequest, TResponse>
+    {
+        private readonly TInvoker _invoker;
+
+        internal AsyncUnaryBinding(TInvoker invoker) => _invoker = invoker;
+
+        internal override GrpcProcessorBuilder Bind(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method)
+            => GeneratedSupport.BindAsyncUnary(builder, method, _invoker);
     }
 }

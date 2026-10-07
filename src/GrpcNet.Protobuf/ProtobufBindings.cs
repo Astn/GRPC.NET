@@ -92,7 +92,7 @@ namespace GrpcNet.Protobuf
         }
 
         // Everything that can reject a Bind is checked before the builder changes, so a rejected Bind leaves nothing behind.
-        private static void Preflight(GrpcProcessorBuilder builder, GrpcMethod method)
+        internal static void Preflight(GrpcProcessorBuilder builder, GrpcMethod method)
         {
             if (builder == null) throw new ArgumentNullException(nameof(builder));
             if (method == null) throw new ArgumentNullException(nameof(method));

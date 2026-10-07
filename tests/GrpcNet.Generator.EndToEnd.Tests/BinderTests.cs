@@ -177,7 +177,7 @@ namespace GrpcNet.Generator.EndToEnd.Tests
             Assert.That(processor.Resolve("/merge.Merger/Ping"u8).IsValid, Is.True);
         }
 
-        private static async Task<List<TResponse>> CallAsync<TResponse>(GrpcProcessor processor, GrpcMethod method, MessageParser<TResponse> parser, params IMessage[] requests)
+        internal static async Task<List<TResponse>> CallAsync<TResponse>(GrpcProcessor processor, GrpcMethod method, MessageParser<TResponse> parser, params IMessage[] requests)
             where TResponse : IMessage<TResponse>
         {
             var requestPipe = new Pipe();

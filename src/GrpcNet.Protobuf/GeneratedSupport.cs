@@ -72,6 +72,11 @@ namespace GrpcNet.Protobuf
                 throw new ArgumentException("The handler for '" + method.Path + "' was made from '" + handler.Origin.Path + "'.", nameof(handler));
             }
 
+            if (handler.Direct != null)
+            {
+                return handler.Direct.Bind(builder, method);
+            }
+
             if (handler.Sync != null)
             {
                 return builder.Bind(method, handler.Sync);
@@ -89,6 +94,84 @@ namespace GrpcNet.Protobuf
 
             throw new ArgumentException("The handler for '" + method.Path + "' is empty.", nameof(handler));
         }
+
+        // The direct-call bindings. A generated interceptor replaces a Bind, BindAsync, Sync or Async call whose handler is a
+        // method group with one of these, passing a struct that calls the method directly. Each does exactly what the call it
+        // replaces does, with the struct in place of the delegate.
+
+        /// <summary>Binds a synchronous unary method to a struct invoker. Same checks and registration as <c>Bind</c>.</summary>
+        public static GrpcProcessorBuilder BindSyncUnary<TRequest, TResponse, TInvoker>(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IUnaryInvoker<TRequest, TResponse>
+        {
+            ProtobufBindings.Preflight(builder, method);
+            builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>, TInvoker>(
+                method.Path, method.RequestCodec, method.ResponseCodec, invoker, method.Descriptor);
+            return ProtobufBindings.AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds an asynchronous unary method to a struct invoker. Same checks and registration as <c>BindAsync</c>.</summary>
+        public static GrpcProcessorBuilder BindAsyncUnary<TRequest, TResponse, TInvoker>(GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IAsyncUnaryInvoker<TRequest, TResponse>
+        {
+            ProtobufBindings.Preflight(builder, method);
+            builder.AddAsyncUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>, TInvoker>(
+                method.Path, method.RequestCodec, method.ResponseCodec, invoker, method.Descriptor);
+            return ProtobufBindings.AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds a server-streaming method to a struct invoker. Same checks and registration as <c>Bind</c>.</summary>
+        public static GrpcProcessorBuilder BindServerStreaming<TRequest, TResponse, TInvoker>(GrpcProcessorBuilder builder, ServerStreamingMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IServerStreamingInvoker<TRequest, TResponse>
+        {
+            ProtobufBindings.Preflight(builder, method);
+            builder.AddServerStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>, TInvoker>(
+                method.Path, method.RequestCodec, method.ResponseCodec, invoker, method.Descriptor);
+            return ProtobufBindings.AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds a client-streaming method to a struct invoker. Same checks and registration as <c>Bind</c>.</summary>
+        public static GrpcProcessorBuilder BindClientStreaming<TRequest, TResponse, TInvoker>(GrpcProcessorBuilder builder, ClientStreamingMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IClientStreamingInvoker<TRequest, TResponse>
+        {
+            ProtobufBindings.Preflight(builder, method);
+            builder.AddClientStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>, TInvoker>(
+                method.Path, method.RequestCodec, method.ResponseCodec, invoker, method.Descriptor);
+            return ProtobufBindings.AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>Binds a bidirectional streaming method to a struct invoker. Same checks and registration as <c>Bind</c>.</summary>
+        public static GrpcProcessorBuilder BindDuplex<TRequest, TResponse, TInvoker>(GrpcProcessorBuilder builder, DuplexMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IDuplexInvoker<TRequest, TResponse>
+        {
+            ProtobufBindings.Preflight(builder, method);
+            builder.AddDuplex<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>, TInvoker>(
+                method.Path, method.RequestCodec, method.ResponseCodec, invoker, method.Descriptor);
+            return ProtobufBindings.AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>A binder handler for <paramref name="method"/> that binds the synchronous struct <paramref name="invoker"/>.</summary>
+        public static UnaryHandler<TRequest, TResponse> SyncHandler<TRequest, TResponse, TInvoker>(UnaryMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IUnaryInvoker<TRequest, TResponse>
+            => new UnaryHandler<TRequest, TResponse>(method ?? throw new ArgumentNullException(nameof(method)), null, null, null, new SyncUnaryBinding<TRequest, TResponse, TInvoker>(invoker));
+
+        /// <summary>A binder handler for <paramref name="method"/> that binds the asynchronous struct <paramref name="invoker"/>.</summary>
+        public static UnaryHandler<TRequest, TResponse> AsyncHandler<TRequest, TResponse, TInvoker>(UnaryMethod<TRequest, TResponse> method, TInvoker invoker)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+            where TInvoker : struct, IAsyncUnaryInvoker<TRequest, TResponse>
+            => new UnaryHandler<TRequest, TResponse>(method ?? throw new ArgumentNullException(nameof(method)), null, null, null, new AsyncUnaryBinding<TRequest, TResponse, TInvoker>(invoker));
 
         /// <summary>
         /// Checks everything that could reject a binder before anything is bound: every handler is present, every unary handler

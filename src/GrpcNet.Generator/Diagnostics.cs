@@ -8,6 +8,7 @@ namespace GrpcNet.Generator
         public const string UnreadableDescriptor = "GN0001";
         public const string UnresolvedType = "GN0002";
         public const string Collision = "GN0003";
+        public const string NotIntercepted = "GN0004";
         public const string InternalError = "GN0099";
 
         private const string Category = "GrpcNet";
@@ -36,6 +37,14 @@ namespace GrpcNet.Generator
             DiagnosticSeverity.Error,
             isEnabledByDefault: true);
 
+        private static readonly DiagnosticDescriptor s_notIntercepted = new DiagnosticDescriptor(
+            NotIntercepted,
+            "Method-group handlers are not bound as direct calls",
+            "{0} handler(s) bound as method groups keep their delegate, because the project does not opt in to GrpcNet's interceptors. Add GrpcNet.Generated to the InterceptorsNamespaces property to bind them as direct calls.",
+            Category,
+            DiagnosticSeverity.Info,
+            isEnabledByDefault: true);
+
         private static readonly DiagnosticDescriptor s_internal = new DiagnosticDescriptor(
             InternalError,
             "The generator failed",
@@ -51,6 +60,7 @@ namespace GrpcNet.Generator
                 UnreadableDescriptor => s_unreadable,
                 UnresolvedType => s_unresolved,
                 Collision => s_collision,
+                NotIntercepted => s_notIntercepted,
                 _ => s_internal,
             };
             return Diagnostic.Create(descriptor, info.Location?.ToLocation() ?? Location.None, info.Arguments.Cast<object>().ToArray());

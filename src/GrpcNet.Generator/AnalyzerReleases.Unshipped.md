@@ -8,4 +8,5 @@ Rule ID | Category | Severity | Notes
 GN0001 | GrpcNet | Error | The embedded descriptor of a protoc-generated file cannot be read
 GN0002 | GrpcNet | Error | A method's message type cannot be resolved to a C# type
 GN0003 | GrpcNet | Error | The generated service class collides with an existing type or member
+GN0004 | GrpcNet | Info | Method-group handlers keep their delegate because the project does not opt in to interceptors
 GN0099 | GrpcNet | Error | The generator failed on an input

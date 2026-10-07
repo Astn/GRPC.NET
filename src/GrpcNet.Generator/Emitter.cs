@@ -163,7 +163,7 @@ namespace GrpcNet.Generator
             _ => "bidirectional streaming",
         };
 
-        private static string Identifier(string name)
+        internal static string Identifier(string name)
             => SyntaxFacts.IsReservedKeyword(SyntaxFacts.GetKeywordKind(name)) ? "@" + name : name;
 
         // A member named like one of object's members hides it, which is a warning without "new".
@@ -173,7 +173,7 @@ namespace GrpcNet.Generator
             _ => "",
         };
 
-        private sealed class Writer
+        internal sealed class Writer
         {
             private readonly StringBuilder _text = new StringBuilder();
             private int _indent;

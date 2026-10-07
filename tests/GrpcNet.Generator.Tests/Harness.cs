@@ -14,6 +14,9 @@ namespace GrpcNet.Generator.Tests
     {
         public static readonly CSharpParseOptions ParseOptions = new CSharpParseOptions(LanguageVersion.Latest);
 
+        /// <summary>The parse options of a project that lists GrpcNet.Generated in InterceptorsNamespaces, as the Csc task passes it.</summary>
+        public static readonly CSharpParseOptions OptedIn = ParseOptions.WithFeatures(new[] { new KeyValuePair<string, string>("InterceptorsNamespaces", ";GrpcNet.Generated;") });
+
         private static readonly Lazy<MetadataReference[]> s_references = new Lazy<MetadataReference[]>(() =>
         {
             // The framework and the libraries generated code uses, but not this test assembly, which holds its own compiled copy
@@ -27,7 +30,7 @@ namespace GrpcNet.Generator.Tests
         /// <summary>protoc's C# output for one of the test protos, as this project's build produced it.</summary>
         public static string Protoc(string fileName) => File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory, "protoc", fileName));
 
-        public static CSharpCompilation Compilation(IEnumerable<string> sources, bool withGrpcNet = true)
+        public static CSharpCompilation Compilation(IEnumerable<string> sources, bool withGrpcNet = true, CSharpParseOptions? options = null)
         {
             IEnumerable<MetadataReference> references = s_references.Value;
             if (!withGrpcNet)
@@ -37,23 +40,23 @@ namespace GrpcNet.Generator.Tests
 
             return CSharpCompilation.Create(
                 "Fixture",
-                sources.Select((s, i) => CSharpSyntaxTree.ParseText(s, ParseOptions, path: "Source" + i + ".cs")),
+                sources.Select((s, i) => CSharpSyntaxTree.ParseText(s, options ?? ParseOptions, path: "Source" + i + ".cs")),
                 references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
         }
 
-        public static GeneratorDriver Driver(bool track = false)
+        public static GeneratorDriver Driver(bool track = false, CSharpParseOptions? options = null)
             => CSharpGeneratorDriver.Create(
                 new[] { new GrpcNetGenerator().AsSourceGenerator() },
-                parseOptions: ParseOptions,
+                parseOptions: options ?? ParseOptions,
                 driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps: track));
 
         public static Result Run(params string[] sources) => Run((IEnumerable<string>)sources);
 
-        public static Result Run(IEnumerable<string> sources, bool withGrpcNet = true)
+        public static Result Run(IEnumerable<string> sources, bool withGrpcNet = true, CSharpParseOptions? options = null)
         {
-            CSharpCompilation input = Compilation(sources, withGrpcNet);
-            GeneratorDriver driver = Driver().RunGeneratorsAndUpdateCompilation(input, out Compilation output, out ImmutableArray<Diagnostic> diagnostics);
+            CSharpCompilation input = Compilation(sources, withGrpcNet, options);
+            GeneratorDriver driver = Driver(options: options).RunGeneratorsAndUpdateCompilation(input, out Compilation output, out ImmutableArray<Diagnostic> diagnostics);
             return new Result(driver.GetRunResult(), output, diagnostics);
         }
 

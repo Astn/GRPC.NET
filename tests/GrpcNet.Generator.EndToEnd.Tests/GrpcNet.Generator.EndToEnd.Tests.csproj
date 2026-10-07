@@ -2,6 +2,8 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- The opt-in GrpcNet's interceptors need; the package's props will add it. -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);GrpcNet.Generated</InterceptorsNamespaces>
   </PropertyGroup>
 
   <ItemGroup>

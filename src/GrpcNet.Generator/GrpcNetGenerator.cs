@@ -22,6 +22,9 @@ namespace GrpcNet.Generator
         internal const string FileModelsStep = "FileModels";
         internal const string EnabledStep = "Enabled";
         internal const string DuplicatesStep = "Duplicates";
+        internal const string SitesStep = "InterceptSites";
+        internal const string OptInStep = "InterceptorsOptIn";
+        internal const string GeneratedMethodsStep = "GeneratedMethods";
 
         private const string FileDescriptorType = "Google.Protobuf.Reflection.FileDescriptor";
         private const string GrpcMethodType = "GrpcNet.Protobuf.GrpcMethod";
@@ -81,6 +84,55 @@ namespace GrpcNet.Generator
                 {
                     spc.AddSource(Emitter.HintName(file), Emitter.Emit(file));
                 }
+            });
+
+            RegisterInterceptors(context, files);
+        }
+
+        // Handlers bound as method groups become direct calls, through one interceptor per call, when the project opts in.
+        private static void RegisterInterceptors(IncrementalGeneratorInitializationContext context, IncrementalValuesProvider<FileModel> files)
+        {
+            IncrementalValueProvider<ImmutableArray<SiteCandidate>> candidates = context.SyntaxProvider
+                .CreateSyntaxProvider(static (node, _) => Interceptors.IsCandidate(node), static (ctx, ct) => Interceptors.Extract(ctx, ct))
+                .Where(static site => site != null)
+                .Select(static (site, _) => site!)
+                .WithTrackingName(SitesStep)
+                .Collect();
+
+            // Calls on method objects generated here are matched against what this generator emits.
+            IncrementalValueProvider<EquatableArray<GeneratedMethod>> generated = files
+                .Collect()
+                .Select(static (all, _) => Interceptors.Generated(all))
+                .WithTrackingName(GeneratedMethodsStep);
+
+            IncrementalValueProvider<EquatableArray<InterceptSite>> sites = candidates
+                .Combine(generated)
+                .Select(static (input, _) => new EquatableArray<InterceptSite>(input.Left
+                    .Select(c => c.Resolved ?? Interceptors.Resolve(c.Pending!, input.Right))
+                    .Where(s => s != null)
+                    .Select(s => s!)
+                    .ToArray()));
+
+            IncrementalValueProvider<bool> optedIn = context.ParseOptionsProvider
+                .Select(static (options, _) => Interceptors.OptedIn(options))
+                .WithTrackingName(OptInStep);
+
+            context.RegisterSourceOutput(sites.Combine(optedIn), static (spc, input) =>
+            {
+                EquatableArray<InterceptSite> found = input.Left;
+                if (found.Count == 0)
+                {
+                    return;
+                }
+
+                if (!input.Right)
+                {
+                    spc.ReportDiagnostic(Diagnostics.Create(new DiagnosticInfo(
+                        Diagnostics.NotIntercepted, new EquatableArray<string>(new[] { found.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) }), found[0].Location)));
+                    return;
+                }
+
+                spc.AddSource(Interceptors.HintName, Interceptors.Emit(found));
             });
         }
 
