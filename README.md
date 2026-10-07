@@ -64,7 +64,7 @@ Milestone 1 builds the smallest thing that can prove or kill the premise. The st
 
 | Run | Measures |
 | --- | --- |
-| E0 | The core alone: nanoseconds and bytes per call for scalar messages of 8, 32, 512 and 4,096 bytes, a string-heavy message, a nested message and a bytes field; and handler dispatch compared four ways: a delegate, a delegate devirtualized by PGO, a direct call, and a generated `switch` |
+| E0 | The core alone: nanoseconds and bytes per call for scalar messages of 8, 32, 512 and 4,096 bytes, a string-heavy message, a nested message and a bytes field; and handler dispatch compared four ways: a delegate, a delegate devirtualized by PGO, a direct call, and a hand-written `switch` prototype (a generated one follows only if the prototype shows a gain) |
 | E1 | grpc-dotnet on Kestrel (the baseline), and the Kestrel floor |
 | E2 | GRPC.NET on Kestrel |
 | E3 | The same core behind a raw-framing host on Kestrel's socket transport, with no HTTP/2: a diagnostic of what bypassing Kestrel's HTTP/2 path could be worth |
