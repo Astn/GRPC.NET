@@ -38,6 +38,9 @@ namespace GrpcNet.Generator.Tests
         private const string CloserBind = "namespace Near { public static class Mine { public static GrpcProcessorBuilder Bind<TQ, TR>(this GrpcProcessorBuilder b, UnaryMethod<TQ, TR> m, Func<TQ, TR> h) "
             + "where TQ : class, Google.Protobuf.IMessage<TQ> where TR : class, Google.Protobuf.IMessage<TR> => b; } "
             + "public static class Caller { public static void Go(GrpcProcessorBuilder b, Impl i) => b.Bind(Calculator.Add, i.Add); } } ";
+        private const string Interface = "public interface IAdd { AddReply Add(AddRequest r); } "
+            + "public sealed class AddImpl : IAdd { AddReply IAdd.Add(AddRequest r) => new AddReply(); } "
+            + "public static class IH { public static void Go(GrpcProcessorBuilder b, IAdd a) => b.Bind(Calculator.Add, a.Add); } ";
         private const string FileLocal = "file sealed class L { public AddReply Add(AddRequest r) => new AddReply(); public static void Go(GrpcProcessorBuilder b) => b.Bind(Calculator.Add, new L().Add); } ";
 
         private static Harness.Result Run(string body, bool optIn = true, string extra = "")
@@ -64,6 +67,7 @@ namespace GrpcNet.Generator.Tests
         [TestCase("Calculator.Add.Async(i.AddAsync);", TestName = "Async factory with the token")]
         [TestCase("Calculator.Add.Async(i.AddTokenless);", TestName = "Async factory without the token")]
         [TestCase("b.Bind(Calculator.Add, bs.Add);", TestName = "virtual method on a base-typed receiver")]
+        [TestCase("IH.Go(b, new AddImpl());", Interface, TestName = "an interface method on an interface-typed receiver")]
         [TestCase("b.Bind(Calculator.Add, i.Shared);", TestName = "protected internal method")]
         [TestCase("b.Bind(Manual.Add, i.Add);", Manual, TestName = "a method object written by hand")]
         [TestCase("Manual.Add.Sync(i.Add);", Manual, TestName = "Sync on a method object written by hand")]

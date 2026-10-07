@@ -77,6 +77,16 @@ namespace GrpcNet.Generator.EndToEnd.Tests
         public override Item Get(Query query) => new Item { Name = "derived" };
     }
 
+    public interface IShop
+    {
+        Item Get(Query query);
+    }
+
+    public sealed class InterfaceShop : IShop
+    {
+        Item IShop.Get(Query query) => new Item { Name = "interface" + query.Count };
+    }
+
     public sealed class GenericHost<T>
         where T : class
     {
@@ -164,6 +174,15 @@ namespace GrpcNet.Generator.EndToEnd.Tests
             GrpcProcessor processor = new GrpcProcessorBuilder().Bind(Shop.Shop.Get, shop.Get).Build();
             Assert.That(IsDirect(processor, Shop.Shop.Get), Is.True);
             Assert.That((await BinderTests.CallAsync(processor, Shop.Shop.Get, Item.Parser, new Query())).Single().Name, Is.EqualTo("derived"));
+        }
+
+        [Test]
+        public async Task AnInterfaceMethodRunsTheExplicitImplementation()
+        {
+            IShop shop = new InterfaceShop();
+            GrpcProcessor processor = new GrpcProcessorBuilder().Bind(Shop.Shop.Get, shop.Get).Build();
+            Assert.That(IsDirect(processor, Shop.Shop.Get), Is.True);
+            Assert.That((await BinderTests.CallAsync(processor, Shop.Shop.Get, Item.Parser, new Query { Count = 4 })).Single().Name, Is.EqualTo("interface4"));
         }
 
         [Test]
