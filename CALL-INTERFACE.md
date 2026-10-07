@@ -233,11 +233,12 @@ public static partial class Calculator
 
 Each object also carries the method's path as precomputed UTF-8 bytes, its Google.Protobuf `MethodDescriptor`, and the codec binding. Registration therefore needs no strings. The constructor finds the method in the file's descriptor by its service and method names, never by position, and checks its request type, response type and call kind there. A generated file that has fallen behind its `.proto`, even one where two methods with the same signature have swapped places, fails when the object is created.
 
-**Binding a lambda.** `Bind` has one overload per call kind and per handler form. The compiler infers the request and response types from the first argument, then types the lambda's parameters from them, so the editor offers full type hints:
+**Binding a lambda.** `Bind` has one overload per call kind; an asynchronous unary handler uses `BindAsync`, with or without the cancellation token, so the synchronous form stays visible at the call site. A handler returning the wrong type is reported as CS0411 (type arguments cannot be inferred): C# infers the response type from both the method object and the lambda, and has no way to exclude the lambda. The compiler infers the request and response types from the first argument, then types the lambda's parameters from them, so the editor offers full type hints:
 
 ```csharp
 app.MapGrpcNet()
    .Bind(Calculator.Add, r => new AddReply { Sum = r.A + r.B })        // r : AddRequest
+   .BindAsync(Calculator.Lookup, async r => await store.FindAsync(r.Id))
    .Bind(Calculator.Chat, async (requests, responses, ct) =>            // MessageReader<ChatMessage>, MessageWriter<ChatMessage>
    {
        while (await requests.MoveNextAsync())
@@ -248,7 +249,8 @@ app.MapGrpcNet()
 ```csharp
 // library overloads (illustrative)
 Bind<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, TResp> handler);
-Bind<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, CancellationToken, ValueTask<TResp>> handler);
+BindAsync<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, ValueTask<TResp>> handler);
+BindAsync<TReq, TResp>(UnaryMethod<TReq, TResp> method, Func<TReq, CancellationToken, ValueTask<TResp>> handler);
 Bind<TReq, TResp>(ServerStreamingMethod<TReq, TResp> method, Func<TReq, MessageWriter<TResp>, CancellationToken, ValueTask> handler);
 Bind<TReq, TResp>(ClientStreamingMethod<TReq, TResp> method, Func<MessageReader<TReq>, CancellationToken, ValueTask<TResp>> handler);
 Bind<TReq, TResp>(DuplexMethod<TReq, TResp> method, Func<MessageReader<TReq>, MessageWriter<TResp>, CancellationToken, ValueTask> handler);

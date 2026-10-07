@@ -121,7 +121,7 @@ namespace GrpcNet.Protobuf.Tests
                         await responses.WriteAsync(new Scalar { A = i });
                     }
                 })
-                .Bind(Calculator.Add, async (request, ct) =>
+                .BindAsync(Calculator.Add, async (request, ct) =>
                 {
                     await System.Threading.Tasks.Task.Yield();
                     return new Scalar { A = request.A + (int)request.B };
@@ -130,6 +130,21 @@ namespace GrpcNet.Protobuf.Tests
 
             Assert.That(await CallAsync(processor, Calculator.Watch, new Scalar { A = 3 }), Is.EqualTo(new[] { 0, 1, 2 }));
             Assert.That(await CallAsync(processor, Calculator.Add, new Scalar { A = 40, B = 2 }), Is.EqualTo(new[] { 42 }));
+        }
+
+        [Test]
+        public async System.Threading.Tasks.Task AsyncUnaryWithoutATokenRunsThroughProcessAsync()
+        {
+            GrpcProcessor processor = new GrpcProcessorBuilder()
+                .BindAsync(Calculator.Add, async request =>
+                {
+                    await System.Threading.Tasks.Task.Yield();
+                    return new Scalar { A = request.A * 2 };
+                })
+                .Build();
+
+            Assert.That(processor.IsSynchronousUnary(processor.Resolve(Calculator.Add.PathUtf8.Span)), Is.False);
+            Assert.That(await CallAsync(processor, Calculator.Add, new Scalar { A = 21 }), Is.EqualTo(new[] { 42 }));
         }
 
         private static async System.Threading.Tasks.Task<int[]> CallAsync(GrpcProcessor processor, GrpcMethod method, Scalar request)

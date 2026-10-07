@@ -14,8 +14,8 @@ namespace GrpcNet.Protobuf
         private static readonly ConditionalWeakTable<GrpcProcessorBuilder, ServiceRegistry> s_registries = new ConditionalWeakTable<GrpcProcessorBuilder, ServiceRegistry>();
 
         /// <summary>
-        /// Binds <paramref name="handler"/> to the unary <paramref name="method"/>. The handler's request and response types are
-        /// inferred from the method object.
+        /// Binds the synchronous <paramref name="handler"/> to the unary <paramref name="method"/>. The handler's request and
+        /// response types are inferred from the method object. Asynchronous handlers use <c>BindAsync</c>.
         /// </summary>
         public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, Func<TRequest, TResponse> handler)
             where TRequest : class, IMessage<TRequest>
@@ -28,7 +28,21 @@ namespace GrpcNet.Protobuf
         }
 
         /// <summary>Binds an asynchronous <paramref name="handler"/> to the unary <paramref name="method"/>.</summary>
-        public static GrpcProcessorBuilder Bind<TRequest, TResponse>(this GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, Func<TRequest, CancellationToken, ValueTask<TResponse>> handler)
+        public static GrpcProcessorBuilder BindAsync<TRequest, TResponse>(this GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, Func<TRequest, ValueTask<TResponse>> handler)
+            where TRequest : class, IMessage<TRequest>
+            where TResponse : class, IMessage<TResponse>
+        {
+            Preflight(builder, method);
+            builder.AddAsyncUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
+                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            return AddService(builder, method.Descriptor.Service, requireComplete: false);
+        }
+
+        /// <summary>
+        /// Binds an asynchronous <paramref name="handler"/> that takes the call's cancellation token to the unary
+        /// <paramref name="method"/>.
+        /// </summary>
+        public static GrpcProcessorBuilder BindAsync<TRequest, TResponse>(this GrpcProcessorBuilder builder, UnaryMethod<TRequest, TResponse> method, Func<TRequest, CancellationToken, ValueTask<TResponse>> handler)
             where TRequest : class, IMessage<TRequest>
             where TResponse : class, IMessage<TResponse>
         {

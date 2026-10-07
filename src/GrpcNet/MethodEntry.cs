@@ -212,6 +212,29 @@ namespace GrpcNet
         }
     }
 
+    /// <summary>An asynchronous unary method whose handler takes no cancellation token.</summary>
+    internal sealed class TokenlessUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+        where TRequestCodec : struct, IMessageCodec<TRequest>
+        where TResponseCodec : struct, IMessageCodec<TResponse>
+    {
+        private readonly Func<TRequest, ValueTask<TResponse>> _handler;
+
+        internal TokenlessUnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, ValueTask<TResponse>> handler, object? contract)
+            : base(path, MethodKind.Unary, requestCodec, responseCodec, contract)
+        {
+            _handler = handler;
+        }
+
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
+        private protected override async ValueTask RunAsync(
+            ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
+        {
+            TRequest request = await reader.ReadSingleAsync(readStamp).ConfigureAwait(false);
+            TResponse response = await _handler(request).ConfigureAwait(false);
+            await writer.WriteAsync(writeStamp, in response).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>A server-streaming method: one request, any number of responses.</summary>
     internal sealed class ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>

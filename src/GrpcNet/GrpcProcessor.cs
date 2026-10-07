@@ -278,6 +278,19 @@ namespace GrpcNet
             return Add(new AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
         }
 
+        /// <summary>
+        /// Registers an asynchronous unary method whose handler takes no cancellation token. The call's deadline and
+        /// cancellation are still observed when the handler completes; they cannot interrupt it.
+        /// </summary>
+        public GrpcProcessorBuilder AddAsyncUnary<TRequest, TResponse, TRequestCodec, TResponseCodec>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, ValueTask<TResponse>> handler, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+        {
+            Reserve(path, handler);
+            return Add(new TokenlessUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+        }
+
         /// <summary>Registers a server-streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
         public GrpcProcessorBuilder AddServerStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec>(
             string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, MessageWriter<TResponse>, CancellationToken, ValueTask> handler, object? contract = null)

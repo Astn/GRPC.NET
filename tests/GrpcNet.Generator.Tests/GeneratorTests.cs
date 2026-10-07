@@ -118,7 +118,16 @@ namespace GrpcNet.Generator.Tests
                 new[] { "CS0411" }).SetName("a handler with the wrong request type");
             yield return new TestCaseData(
                 "b.Bind(Calculator.Add, (AddRequest r) => new AddRequest());",
-                new[] { "CS1593" }).SetName("a handler with the wrong response type");
+                new[] { "CS0411" }).SetName("a handler with the wrong response type");
+            yield return new TestCaseData(
+                "b.Bind(Calculator.Add, async r => { await System.Threading.Tasks.Task.Yield(); return new AddReply(); });",
+                new[] { "CS0411" }).SetName("an async handler bound with Bind");
+            yield return new TestCaseData(
+                "b.BindAsync(Calculator.Add, async r => { await System.Threading.Tasks.Task.Yield(); return new AddRequest(); });",
+                new[] { "CS1593" }).SetName("an async handler with the wrong response type");
+            yield return new TestCaseData(
+                "b.BindAsync(Calculator.Count, async r => { await System.Threading.Tasks.Task.Yield(); return new AddReply(); });",
+                new[] { "CS0411" }).SetName("BindAsync on a server-streaming method");
             yield return new TestCaseData(
                 "b.Bind(Calculator.Count, (AddRequest r) => new AddReply());",
                 new[] { "CS1503" }).SetName("a unary handler for a server-streaming method");
@@ -143,7 +152,9 @@ namespace GrpcNet.Generator.Tests
             string user = "using GrpcNet.Generator.Tests.Calc; using GrpcNet.Protobuf; class User { void M(GrpcNet.GrpcProcessorBuilder b) { "
                 + "b.Bind(new Calculator.Binder { Add = r => new AddReply { Sum = r.A + r.B }, Count = (r, w, ct) => default, Sum = (rs, ct) => default, "
                 + "Chat = async (rs, ws, ct) => { while (await rs.MoveNextAsync()) await ws.WriteAsync(rs.Current); }, Ping = r => r, Share = r => new Common.V1.Shared() }); "
-                + "b.Bind(new Second.Binder { Describe = o => o.Inner }); } }";
+                + "b.Bind(new Second.Binder { Describe = o => o.Inner }); "
+                + "b.BindAsync(Calculator.Add, async r => { await System.Threading.Tasks.Task.Yield(); return new AddReply(); }); "
+                + "b.BindAsync(Calculator.Add, async (r, ct) => { await System.Threading.Tasks.Task.Delay(1, ct); return new AddReply(); }); } }";
             Harness.Result result = Harness.Run(Harness.Calc().Append(user).ToArray());
             Assert.That(result.GeneratorDiagnostics, Is.Empty);
             Assert.That(result.CompileProblems(), Is.Empty, string.Join("\n", result.CompileProblems().Select(d => d.ToString())));
