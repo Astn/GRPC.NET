@@ -18,6 +18,7 @@ namespace GrpcNet.Generator.Tests
             yield return new TestCaseData(GrpcNet.Generator.Tests.Collide.CollideReflection.Descriptor).SetName("collide.proto");
             yield return new TestCaseData(GrpcNet.Generator.Tests.Quirks.QuirksReflection.Descriptor).SetName("quirks.proto");
             yield return new TestCaseData(NopkgReflection.Descriptor).SetName("nopkg.proto");
+            yield return new TestCaseData(GrpcNet.Generator.Tests.Dup.DupAReflection.Descriptor).SetName("dup_a.proto");
             yield return new TestCaseData(DescriptorReflection.Descriptor).SetName("descriptor.proto");
             yield return new TestCaseData(StructReflection.Descriptor).SetName("struct.proto");
             yield return new TestCaseData(ApiReflection.Descriptor).SetName("api.proto");

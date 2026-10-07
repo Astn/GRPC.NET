@@ -12,6 +12,10 @@ namespace GrpcNet.Generator
         private const string Token = "global::System.Threading.CancellationToken";
         private const string Task = "global::System.Threading.Tasks.ValueTask";
 
+        /// <summary>The fully qualified metadata name of the class a service is generated into.</summary>
+        public static string ClassName(FileModel file, ServiceModel service)
+            => file.Namespace.Length > 0 ? file.Namespace + "." + service.Name : service.Name;
+
         public static string HintName(FileModel file)
         {
             string name = file.ReflectionClass.StartsWith("global::", System.StringComparison.Ordinal) ? file.ReflectionClass.Substring(8) : file.ReflectionClass;
@@ -54,10 +58,10 @@ namespace GrpcNet.Generator
 
         private static void EmitService(Writer w, FileModel file, ServiceModel service)
         {
-            string self = "global::" + (file.Namespace.Length > 0 ? file.Namespace + "." : "") + service.Name;
+            string self = "global::" + (file.Namespace.Length > 0 ? file.Namespace + "." : "") + Identifier(service.Name);
             w.Line("/// <summary>GrpcNet method objects and binder for the <c>" + service.FullName + "</c> service.</summary>");
             w.Line("[global::System.CodeDom.Compiler.GeneratedCode(\"GrpcNet.Generator\", \"1.0.0\")]");
-            w.Line("public static partial class " + service.Name);
+            w.Line("public static partial class " + Identifier(service.Name));
             w.Open();
             foreach (MethodModel method in service.Methods)
             {

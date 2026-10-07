@@ -13,3 +13,8 @@ service Echo {
   rpc Echo (M) returns (M);
   rpc Binder (M) returns (M);
 }
+
+// A service named like the generated binder nested inside it.
+service Binder {
+  rpc Go (M) returns (M);
+}

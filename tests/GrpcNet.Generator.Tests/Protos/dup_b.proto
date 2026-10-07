@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package dup.b;
+
+// The same C# namespace as dup_a.proto, with a service of the same name in another package.
+option csharp_namespace = "GrpcNet.Generator.Tests.Dup";
+
+message B {
+  int32 v = 1;
+}
+
+service S {
+  rpc Go (B) returns (B);
+}

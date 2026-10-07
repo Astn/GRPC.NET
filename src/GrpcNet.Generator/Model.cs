@@ -93,6 +93,9 @@ namespace GrpcNet.Generator
         }
     }
 
+    /// <summary>The C# class a service is generated into, and where the service comes from.</summary>
+    internal sealed record ServiceTarget(string ClassName, string ProtoFile, string ServiceFullName);
+
     internal sealed record DiagnosticInfo(string Id, EquatableArray<string> Arguments, LocationInfo? Location);
 
     /// <summary>
@@ -103,6 +106,7 @@ namespace GrpcNet.Generator
         string ProtoFile,
         string Namespace,
         string ReflectionClass,
+        LocationInfo? Location,
         EquatableArray<ServiceModel> Services,
         EquatableArray<DiagnosticInfo> Diagnostics);
 }

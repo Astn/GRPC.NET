@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -20,9 +21,9 @@ namespace GrpcNet.Generator
     {
         internal const string FileModelsStep = "FileModels";
         internal const string EnabledStep = "Enabled";
+        internal const string DuplicatesStep = "Duplicates";
 
         private const string FileDescriptorType = "Google.Protobuf.Reflection.FileDescriptor";
-        private const string MessageInterface = "Google.Protobuf.IMessage`1";
         private const string GrpcMethodType = "GrpcNet.Protobuf.GrpcMethod";
 
         /// <inheritdoc />
@@ -39,10 +40,18 @@ namespace GrpcNet.Generator
                 .Select(static (compilation, _) => compilation.GetTypeByMetadataName(GrpcMethodType) != null)
                 .WithTrackingName(EnabledStep);
 
-            context.RegisterSourceOutput(files.Combine(enabled), static (spc, pair) =>
+            // Two files can map services to the same C# class: different packages, one csharp_namespace. Every class this
+            // generator would emit more than once is found across all files before any file is emitted.
+            IncrementalValueProvider<EquatableArray<ServiceTarget>> duplicates = files
+                .Select(static (file, _) => Targets(file))
+                .Collect()
+                .Select(static (all, _) => Duplicates(all))
+                .WithTrackingName(DuplicatesStep);
+
+            context.RegisterSourceOutput(files.Combine(enabled).Combine(duplicates), static (spc, input) =>
             {
-                FileModel file = pair.Left;
-                if (!pair.Right)
+                FileModel file = input.Left.Left;
+                if (!input.Left.Right)
                 {
                     return;
                 }
@@ -54,12 +63,41 @@ namespace GrpcNet.Generator
                     failed = true;
                 }
 
+                foreach (ServiceTarget target in Targets(file))
+                {
+                    foreach (ServiceTarget other in input.Right)
+                    {
+                        if (other.ClassName == target.ClassName && other.ProtoFile != target.ProtoFile)
+                        {
+                            var detail = "the class '" + target.ClassName + "' is also generated for the service '" + other.ServiceFullName + "' in '" + other.ProtoFile + "'";
+                            spc.ReportDiagnostic(Diagnostics.Create(new DiagnosticInfo(
+                                Diagnostics.Collision, new EquatableArray<string>(new[] { target.ServiceFullName, detail }), file.Location)));
+                            failed = true;
+                        }
+                    }
+                }
+
                 if (!failed && file.Services.Count > 0)
                 {
                     spc.AddSource(Emitter.HintName(file), Emitter.Emit(file));
                 }
             });
         }
+
+        private static EquatableArray<ServiceTarget> Targets(FileModel file)
+            => new EquatableArray<ServiceTarget>(file.Services
+                .Select(s => new ServiceTarget(Emitter.ClassName(file, s), file.ProtoFile, s.FullName))
+                .ToArray());
+
+        private static EquatableArray<ServiceTarget> Duplicates(ImmutableArray<EquatableArray<ServiceTarget>> all)
+            => new EquatableArray<ServiceTarget>(all
+                .SelectMany(targets => targets)
+                .GroupBy(t => t.ClassName, StringComparer.Ordinal)
+                .Where(g => g.Select(t => t.ProtoFile).Distinct(StringComparer.Ordinal).Count() > 1)
+                .SelectMany(g => g)
+                .OrderBy(t => t.ClassName, StringComparer.Ordinal)
+                .ThenBy(t => t.ProtoFile, StringComparer.Ordinal)
+                .ToArray());
 
         // Syntax only: a static partial class named *Reflection with a static FileDescriptor Descriptor property and a
         // FromBase64String call, the shape protoc's C# generator emits for every file.
@@ -125,7 +163,7 @@ namespace GrpcNet.Generator
         private static FileModel Failed(string reflectionName, string ns, string id, LocationInfo? location, params string[] arguments)
         {
             var diagnostic = new DiagnosticInfo(id, new EquatableArray<string>(arguments), location);
-            return new FileModel("", ns, reflectionName, default, new EquatableArray<DiagnosticInfo>(new[] { diagnostic }));
+            return new FileModel("", ns, reflectionName, location, default, new EquatableArray<DiagnosticInfo>(new[] { diagnostic }));
         }
 
         private static string? LastName(TypeSyntax type) => type switch
@@ -235,7 +273,7 @@ namespace GrpcNet.Generator
                     services.Add(new ServiceModel(service.Name, serviceFullName, new EquatableArray<MethodModel>(methods.ToArray())));
                 }
 
-                return new FileModel(file.Name, _namespace, _reflectionName, new EquatableArray<ServiceModel>(services.ToArray()), new EquatableArray<DiagnosticInfo>(_diagnostics.ToArray()));
+                return new FileModel(file.Name, _namespace, _reflectionName, _here, new EquatableArray<ServiceModel>(services.ToArray()), new EquatableArray<DiagnosticInfo>(_diagnostics.ToArray()));
             }
 
             private FileModel Unreadable(string reason)
@@ -421,6 +459,11 @@ namespace GrpcNet.Generator
             {
                 string target = _namespace.Length == 0 ? service.Name : _namespace + "." + service.Name;
                 var names = new List<string> { Emitter.BinderName };
+                if (service.Name == Emitter.BinderName)
+                {
+                    Collision(service, "the service name '" + Emitter.BinderName + "' is the name of its own generated binder", null);
+                }
+
                 foreach (ProtoMethod method in service.Methods)
                 {
                     if (method.Name == service.Name)

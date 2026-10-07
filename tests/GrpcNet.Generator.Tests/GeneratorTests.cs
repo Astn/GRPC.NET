@@ -45,17 +45,19 @@ namespace GrpcNet.Generator.Tests
             Assert.That(result.CompileProblems(), Is.Empty, string.Join("\n", result.CompileProblems().Select(d => d.ToString())));
             string generated = result.Generated("GrpcNet.Generator.Tests.Quirks.QuirksReflection.GrpcNet.g.cs");
             Assert.That(generated, Does.Contain(" @event ").And.Contain("readonly new global::GrpcNet.Protobuf.UnaryMethod"));
+            Assert.That(generated, Does.Contain("public static partial class @event").And.Contain("global::GrpcNet.Generator.Tests.Quirks.@event.Go"));
         }
 
         [Test]
         public void MethodNamedLikeItsServiceOrTheBinderIsReported()
         {
             Harness.Result result = Harness.Run(Harness.Protoc("Collide.cs"));
-            Assert.That(result.GeneratorDiagnostics.Select(d => d.Id), Is.EqualTo(new[] { "GN0003", "GN0003" }));
+            Assert.That(result.GeneratorDiagnostics.Select(d => d.Id), Is.EqualTo(new[] { "GN0003", "GN0003", "GN0003" }));
             Assert.That(result.HintNames, Is.Empty, "a file with an error emits nothing");
             string[] messages = result.GeneratorDiagnostics.Select(d => d.GetMessage()).ToArray();
             Assert.That(messages, Has.Some.Contains("the method 'Echo' has the name of its service class"));
             Assert.That(messages, Has.Some.Contains("the method name 'Binder' is reserved"));
+            Assert.That(messages, Has.Some.Contains("the service name 'Binder' is the name of its own generated binder"));
             Assert.That(result.GeneratorDiagnostics.All(d => d.Severity == DiagnosticSeverity.Error), Is.True);
         }
 
@@ -77,6 +79,24 @@ namespace GrpcNet.Generator.Tests
             Assert.That(diagnostic.GetMessage(), Does.Contain(detail));
             Assert.That(diagnostic.Location.GetLineSpan().Path, Is.EqualTo("Source2.cs"), "reported at the colliding type");
             Assert.That(result.HintNames, Is.Empty);
+        }
+
+        [Test]
+        public void SameClassFromTwoFilesIsReportedOnBothAndEmittedFromNeither()
+        {
+            Harness.Result result = Harness.Run(Harness.Protoc("DupA.cs"), Harness.Protoc("DupB.cs"));
+            Diagnostic[] diagnostics = result.GeneratorDiagnostics.OrderBy(d => d.Location.GetLineSpan().Path, StringComparer.Ordinal).ToArray();
+            Assert.That(diagnostics.Select(d => d.Id), Is.EqualTo(new[] { "GN0003", "GN0003" }));
+            Assert.That(diagnostics.Select(d => d.Location.GetLineSpan().Path), Is.EqualTo(new[] { "Source0.cs", "Source1.cs" }));
+            Assert.That(diagnostics[0].GetMessage(), Does.Contain("'GrpcNet.Generator.Tests.Dup.S' is also generated for the service 'dup.b.S' in 'dup_b.proto'"));
+            Assert.That(diagnostics[1].GetMessage(), Does.Contain("'GrpcNet.Generator.Tests.Dup.S' is also generated for the service 'dup.a.S' in 'dup_a.proto'"));
+            Assert.That(result.HintNames, Is.Empty);
+            Assert.That(result.CompileProblems(), Is.Empty);
+
+            // Either file alone is fine.
+            Harness.Result alone = Harness.Run(Harness.Protoc("DupA.cs"));
+            Assert.That(alone.GeneratorDiagnostics, Is.Empty);
+            Assert.That(alone.CompileProblems(), Is.Empty);
         }
 
         [Test]

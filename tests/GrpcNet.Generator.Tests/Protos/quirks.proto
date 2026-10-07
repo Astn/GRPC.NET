@@ -14,3 +14,8 @@ service Quirks {
   rpc Equals (M) returns (M);
   rpc event (M) returns (M);
 }
+
+// A service name that is a C# keyword.
+service event {
+  rpc Go (M) returns (M);
+}
