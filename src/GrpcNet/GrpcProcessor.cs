@@ -45,6 +45,9 @@ namespace GrpcNet
         /// </summary>
         public bool IsSynchronousUnary(MethodId method) => _methods.Get(method)?.IsSynchronousUnary ?? false;
 
+        /// <summary>The entry <paramref name="method"/> resolves to, for tests that check its closed type.</summary>
+        internal object? EntryOf(MethodId method) => _methods.Get(method);
+
         /// <summary>
         /// Runs any call over the request and response pipes: streaming calls, asynchronous methods, and unary calls whose
         /// body has not fully arrived. Completes <paramref name="sink"/> exactly once, with the call's one terminal status.
@@ -264,8 +267,24 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddUnary<TRequest, TResponse, TRequestCodec, TResponseCodec, UnaryDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new UnaryDelegate<TRequest, TResponse, SharedTag>(handler), contract);
+        }
+
+        /// <summary>
+        /// Registers a unary method whose handler is the struct <paramref name="invoker"/>. The entry holds the invoker and
+        /// calls it directly, so an invoker type of its own gives the method its own compiled code. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.
+        /// </summary>
+        public GrpcProcessorBuilder AddUnary<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+            where TInvoker : struct, IUnaryInvoker<TRequest, TResponse>
+        {
+            Reserve(path);
+            return Add(new UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(path, requestCodec, responseCodec, invoker, contract));
         }
 
         /// <summary>Registers a unary method with an asynchronous handler. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
@@ -274,8 +293,10 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddAsyncUnary<TRequest, TResponse, TRequestCodec, TResponseCodec, AsyncUnaryDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new AsyncUnaryDelegate<TRequest, TResponse, SharedTag>(handler), contract);
         }
 
         /// <summary>
@@ -287,8 +308,21 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new TokenlessUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddAsyncUnary<TRequest, TResponse, TRequestCodec, TResponseCodec, TokenlessUnaryDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new TokenlessUnaryDelegate<TRequest, TResponse, SharedTag>(handler), contract);
+        }
+
+        /// <summary>Registers an asynchronous unary method whose handler is the struct <paramref name="invoker"/>. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddAsyncUnary<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+            where TInvoker : struct, IAsyncUnaryInvoker<TRequest, TResponse>
+        {
+            Reserve(path);
+            return Add(new AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(path, requestCodec, responseCodec, invoker, contract));
         }
 
         /// <summary>Registers a server-streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
@@ -297,8 +331,21 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddServerStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec, ServerStreamingDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new ServerStreamingDelegate<TRequest, TResponse, SharedTag>(handler), contract);
+        }
+
+        /// <summary>Registers a server-streaming method whose handler is the struct <paramref name="invoker"/>. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddServerStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+            where TInvoker : struct, IServerStreamingInvoker<TRequest, TResponse>
+        {
+            Reserve(path);
+            return Add(new ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(path, requestCodec, responseCodec, invoker, contract));
         }
 
         /// <summary>Registers a client-streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
@@ -307,8 +354,21 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new ClientStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddClientStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec, ClientStreamingDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new ClientStreamingDelegate<TRequest, TResponse, SharedTag>(handler), contract);
+        }
+
+        /// <summary>Registers a client-streaming method whose handler is the struct <paramref name="invoker"/>. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddClientStreaming<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+            where TInvoker : struct, IClientStreamingInvoker<TRequest, TResponse>
+        {
+            Reserve(path);
+            return Add(new ClientStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(path, requestCodec, responseCodec, invoker, contract));
         }
 
         /// <summary>Registers a bidirectional streaming method. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
@@ -317,15 +377,27 @@ namespace GrpcNet
             where TRequestCodec : struct, IMessageCodec<TRequest>
             where TResponseCodec : struct, IMessageCodec<TResponse>
         {
-            Reserve(path, handler);
-            return Add(new DuplexEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>(path, requestCodec, responseCodec, handler, contract));
+            ValidatePath(path);
+            if (handler == null) throw new ArgumentNullException(nameof(handler));
+            return AddDuplex<TRequest, TResponse, TRequestCodec, TResponseCodec, DuplexDelegate<TRequest, TResponse, SharedTag>>(
+                path, requestCodec, responseCodec, new DuplexDelegate<TRequest, TResponse, SharedTag>(handler), contract);
+        }
+
+        /// <summary>Registers a bidirectional streaming method whose handler is the struct <paramref name="invoker"/>. See <see cref="AddUnary{TRequest, TResponse, TRequestCodec, TResponseCodec}"/>.</summary>
+        public GrpcProcessorBuilder AddDuplex<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(
+            string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract = null)
+            where TRequestCodec : struct, IMessageCodec<TRequest>
+            where TResponseCodec : struct, IMessageCodec<TResponse>
+            where TInvoker : struct, IDuplexInvoker<TRequest, TResponse>
+        {
+            Reserve(path);
+            return Add(new DuplexEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker>(path, requestCodec, responseCodec, invoker, contract));
         }
 
         // Validates a registration before anything changes, so a rejected one leaves the builder as it was.
-        private void Reserve(string path, Delegate handler)
+        private void Reserve(string path)
         {
             ValidatePath(path);
-            if (handler == null) throw new ArgumentNullException(nameof(handler));
             if (!_paths.Add(path))
             {
                 throw new InvalidOperationException("The method '" + path + "' is bound more than once.");

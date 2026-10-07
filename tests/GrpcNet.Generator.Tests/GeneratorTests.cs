@@ -52,12 +52,14 @@ namespace GrpcNet.Generator.Tests
         public void MethodNamedLikeItsServiceOrTheBinderIsReported()
         {
             Harness.Result result = Harness.Run(Harness.Protoc("Collide.cs"));
-            Assert.That(result.GeneratorDiagnostics.Select(d => d.Id), Is.EqualTo(new[] { "GN0003", "GN0003", "GN0003" }));
+            Assert.That(result.GeneratorDiagnostics.Select(d => d.Id), Is.EqualTo(new[] { "GN0003", "GN0003", "GN0003", "GN0003", "GN0003" }));
             Assert.That(result.HintNames, Is.Empty, "a file with an error emits nothing");
             string[] messages = result.GeneratorDiagnostics.Select(d => d.GetMessage()).ToArray();
             Assert.That(messages, Has.Some.Contains("the method 'Echo' has the name of its service class"));
             Assert.That(messages, Has.Some.Contains("the method name 'Binder' is reserved"));
             Assert.That(messages, Has.Some.Contains("the service name 'Binder' is the name of its own generated binder"));
+            Assert.That(messages, Has.Some.Contains("the method name 'GrpcNetTags' is reserved for the generated method tags"));
+            Assert.That(messages, Has.Some.Contains("the service name 'GrpcNetTags' is the name of its own generated method tags"));
             Assert.That(result.GeneratorDiagnostics.All(d => d.Severity == DiagnosticSeverity.Error), Is.True);
         }
 
@@ -68,6 +70,7 @@ namespace GrpcNet.Generator.Tests
             yield return new TestCaseData("namespace GrpcNet.Generator.Tests.Calc { public struct Calculator { } }", "is not a static partial class").SetName("a struct");
             yield return new TestCaseData("namespace GrpcNet.Generator.Tests.Calc { public static partial class Calculator { public static int Add; } }", "already has a member named 'Add'").SetName("a member named like a method");
             yield return new TestCaseData("namespace GrpcNet.Generator.Tests.Calc { public static partial class Calculator { public sealed class Binder { } } }", "already has a member named 'Binder'").SetName("a member named Binder");
+            yield return new TestCaseData("namespace GrpcNet.Generator.Tests.Calc { public static partial class Calculator { private static class GrpcNetTags { } } }", "already has a member named 'GrpcNetTags'").SetName("a member named GrpcNetTags");
         }
 
         [TestCaseSource(nameof(Collisions))]

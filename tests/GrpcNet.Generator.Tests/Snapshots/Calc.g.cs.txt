@@ -9,22 +9,33 @@ namespace GrpcNet.Generator.Tests.Calc
     public static partial class Calculator
     {
         /// <summary>The unary method <c>/calc.Calculator/Add</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Add = new global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Add");
+        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Add = global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Add>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Add");
 
         /// <summary>The server-streaming method <c>/calc.Calculator/Count</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.ServerStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Count = new global::GrpcNet.Protobuf.ServerStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Count");
+        public static readonly global::GrpcNet.Protobuf.ServerStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Count = global::GrpcNet.Protobuf.ServerStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Count>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Count");
 
         /// <summary>The client-streaming method <c>/calc.Calculator/Sum</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.ClientStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Sum = new global::GrpcNet.Protobuf.ClientStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Sum");
+        public static readonly global::GrpcNet.Protobuf.ClientStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply> Sum = global::GrpcNet.Protobuf.ClientStreamingMethod<global::GrpcNet.Generator.Tests.Calc.AddRequest, global::GrpcNet.Generator.Tests.Calc.AddReply>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Sum>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Sum");
 
         /// <summary>The bidirectional streaming method <c>/calc.Calculator/Chat</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.DuplexMethod<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Chat = new global::GrpcNet.Protobuf.DuplexMethod<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Chat");
+        public static readonly global::GrpcNet.Protobuf.DuplexMethod<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Chat = global::GrpcNet.Protobuf.DuplexMethod<global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Chat>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Chat");
 
         /// <summary>The unary method <c>/calc.Calculator/Ping</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty> Ping = new global::GrpcNet.Protobuf.UnaryMethod<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Ping");
+        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty> Ping = global::GrpcNet.Protobuf.UnaryMethod<global::Google.Protobuf.WellKnownTypes.Empty, global::Google.Protobuf.WellKnownTypes.Empty>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Ping>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Ping");
 
         /// <summary>The unary method <c>/calc.Calculator/Share</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared> Share = new global::GrpcNet.Protobuf.UnaryMethod<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Share");
+        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared> Share = global::GrpcNet.Protobuf.UnaryMethod<global::Common.V1.Shared.Types.Item, global::Common.V1.Shared>.Create<global::GrpcNet.Generator.Tests.Calc.Calculator.GrpcNetTags.Share>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Calculator", "Share");
+
+        /// <summary>One empty struct per method, so each method object's handlers run in code compiled for that method.</summary>
+        private static class GrpcNetTags
+        {
+            public struct Add { }
+            public struct Count { }
+            public struct Sum { }
+            public struct Chat { }
+            public struct Ping { }
+            public struct Share { }
+        }
 
         /// <summary>Binds a handler to every method of the service. Each handler is required, so leaving one out does not compile.</summary>
         public sealed class Binder : global::GrpcNet.Protobuf.IServiceBinder
@@ -68,7 +79,13 @@ namespace GrpcNet.Generator.Tests.Calc
     public static partial class Second
     {
         /// <summary>The unary method <c>/calc.Second/Describe</c>.</summary>
-        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Describe = new global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Second", "Describe");
+        public static readonly global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner> Describe = global::GrpcNet.Protobuf.UnaryMethod<global::GrpcNet.Generator.Tests.Calc.Outer, global::GrpcNet.Generator.Tests.Calc.Outer.Types.Inner>.Create<global::GrpcNet.Generator.Tests.Calc.Second.GrpcNetTags.Describe>(global::GrpcNet.Generator.Tests.Calc.CalcReflection.Descriptor, "calc.Second", "Describe");
+
+        /// <summary>One empty struct per method, so each method object's handlers run in code compiled for that method.</summary>
+        private static class GrpcNetTags
+        {
+            public struct Describe { }
+        }
 
         /// <summary>Binds a handler to every method of the service. Each handler is required, so leaving one out does not compile.</summary>
         public sealed class Binder : global::GrpcNet.Protobuf.IServiceBinder

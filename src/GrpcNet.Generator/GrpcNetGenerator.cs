@@ -458,10 +458,14 @@ namespace GrpcNet.Generator
             private void CheckCollisions(ProtoService service)
             {
                 string target = _namespace.Length == 0 ? service.Name : _namespace + "." + service.Name;
-                var names = new List<string> { Emitter.BinderName };
+                var names = new List<string> { Emitter.BinderName, Emitter.TagsName };
                 if (service.Name == Emitter.BinderName)
                 {
                     Collision(service, "the service name '" + Emitter.BinderName + "' is the name of its own generated binder", null);
+                }
+                else if (service.Name == Emitter.TagsName)
+                {
+                    Collision(service, "the service name '" + Emitter.TagsName + "' is the name of its own generated method tags", null);
                 }
 
                 foreach (ProtoMethod method in service.Methods)
@@ -473,6 +477,10 @@ namespace GrpcNet.Generator
                     else if (method.Name == Emitter.BinderName)
                     {
                         Collision(service, "the method name '" + Emitter.BinderName + "' is reserved for the generated binder", null);
+                    }
+                    else if (method.Name == Emitter.TagsName)
+                    {
+                        Collision(service, "the method name '" + Emitter.TagsName + "' is reserved for the generated method tags", null);
                     }
 
                     names.Add(method.Name);

@@ -22,8 +22,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.Sync(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
@@ -33,8 +32,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddAsyncUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.Tokenless(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
@@ -47,8 +45,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddAsyncUnary<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.WithToken(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
@@ -58,8 +55,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddServerStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.Add(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
@@ -69,8 +65,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddClientStreaming<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.Add(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 
@@ -80,8 +75,7 @@ namespace GrpcNet.Protobuf
             where TResponse : class, IMessage<TResponse>
         {
             Preflight(builder, method);
-            builder.AddDuplex<TRequest, TResponse, ProtobufCodec<TRequest>, ProtobufCodec<TResponse>>(
-                method.Path, method.RequestCodec, method.ResponseCodec, handler, method.Descriptor);
+            method.Adder.Add(builder, method, handler);
             return AddService(builder, method.Descriptor.Service, requireComplete: false);
         }
 

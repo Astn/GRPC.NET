@@ -82,11 +82,28 @@ namespace GrpcNet.Protobuf
     {
         /// <summary>Resolves <paramref name="serviceFullName"/>/<paramref name="methodName"/> in <paramref name="file"/> and checks its types and kind.</summary>
         public UnaryMethod(FileDescriptor file, string serviceFullName, string methodName)
+            : this(file, serviceFullName, methodName, UnaryAdder<TRequest, TResponse, UntaggedMethod>.Instance)
+        {
+        }
+
+        private UnaryMethod(FileDescriptor file, string serviceFullName, string methodName, UnaryAdder<TRequest, TResponse> adder)
             : base(file, serviceFullName, methodName, MethodKind.Unary, typeof(TRequest), typeof(TResponse))
         {
             RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
             ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
+            Adder = adder;
         }
+
+        /// <summary>
+        /// Like the constructor, but every handler bound to this method runs in code compiled for <typeparamref name="TTag"/>.
+        /// The generator passes an empty struct of the method's own, so each method gets its own compiled entry and its own
+        /// handler call site. Method objects made with the constructor share one.
+        /// </summary>
+        public static UnaryMethod<TRequest, TResponse> Create<TTag>(FileDescriptor file, string serviceFullName, string methodName)
+            where TTag : struct
+            => new UnaryMethod<TRequest, TResponse>(file, serviceFullName, methodName, UnaryAdder<TRequest, TResponse, TTag>.Instance);
+
+        internal UnaryAdder<TRequest, TResponse> Adder { get; }
 
         /// <summary>A synchronous handler for this method, for a generated binder. Its types come from the method.</summary>
         public UnaryHandler<TRequest, TResponse> Sync(Func<TRequest, TResponse> handler)
@@ -112,11 +129,28 @@ namespace GrpcNet.Protobuf
     {
         /// <summary>Resolves <paramref name="serviceFullName"/>/<paramref name="methodName"/> in <paramref name="file"/> and checks its types and kind.</summary>
         public ServerStreamingMethod(FileDescriptor file, string serviceFullName, string methodName)
+            : this(file, serviceFullName, methodName, ServerStreamingAdder<TRequest, TResponse, UntaggedMethod>.Instance)
+        {
+        }
+
+        private ServerStreamingMethod(FileDescriptor file, string serviceFullName, string methodName, ServerStreamingAdder<TRequest, TResponse> adder)
             : base(file, serviceFullName, methodName, MethodKind.ServerStreaming, typeof(TRequest), typeof(TResponse))
         {
             RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
             ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
+            Adder = adder;
         }
+
+        /// <summary>
+        /// Like the constructor, but every handler bound to this method runs in code compiled for <typeparamref name="TTag"/>.
+        /// The generator passes an empty struct of the method's own, so each method gets its own compiled entry and its own
+        /// handler call site. Method objects made with the constructor share one.
+        /// </summary>
+        public static ServerStreamingMethod<TRequest, TResponse> Create<TTag>(FileDescriptor file, string serviceFullName, string methodName)
+            where TTag : struct
+            => new ServerStreamingMethod<TRequest, TResponse>(file, serviceFullName, methodName, ServerStreamingAdder<TRequest, TResponse, TTag>.Instance);
+
+        internal ServerStreamingAdder<TRequest, TResponse> Adder { get; }
 
         internal ProtobufCodec<TRequest> RequestCodec { get; }
 
@@ -130,11 +164,28 @@ namespace GrpcNet.Protobuf
     {
         /// <summary>Resolves <paramref name="serviceFullName"/>/<paramref name="methodName"/> in <paramref name="file"/> and checks its types and kind.</summary>
         public ClientStreamingMethod(FileDescriptor file, string serviceFullName, string methodName)
+            : this(file, serviceFullName, methodName, ClientStreamingAdder<TRequest, TResponse, UntaggedMethod>.Instance)
+        {
+        }
+
+        private ClientStreamingMethod(FileDescriptor file, string serviceFullName, string methodName, ClientStreamingAdder<TRequest, TResponse> adder)
             : base(file, serviceFullName, methodName, MethodKind.ClientStreaming, typeof(TRequest), typeof(TResponse))
         {
             RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
             ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
+            Adder = adder;
         }
+
+        /// <summary>
+        /// Like the constructor, but every handler bound to this method runs in code compiled for <typeparamref name="TTag"/>.
+        /// The generator passes an empty struct of the method's own, so each method gets its own compiled entry and its own
+        /// handler call site. Method objects made with the constructor share one.
+        /// </summary>
+        public static ClientStreamingMethod<TRequest, TResponse> Create<TTag>(FileDescriptor file, string serviceFullName, string methodName)
+            where TTag : struct
+            => new ClientStreamingMethod<TRequest, TResponse>(file, serviceFullName, methodName, ClientStreamingAdder<TRequest, TResponse, TTag>.Instance);
+
+        internal ClientStreamingAdder<TRequest, TResponse> Adder { get; }
 
         internal ProtobufCodec<TRequest> RequestCodec { get; }
 
@@ -148,11 +199,28 @@ namespace GrpcNet.Protobuf
     {
         /// <summary>Resolves <paramref name="serviceFullName"/>/<paramref name="methodName"/> in <paramref name="file"/> and checks its types and kind.</summary>
         public DuplexMethod(FileDescriptor file, string serviceFullName, string methodName)
+            : this(file, serviceFullName, methodName, DuplexAdder<TRequest, TResponse, UntaggedMethod>.Instance)
+        {
+        }
+
+        private DuplexMethod(FileDescriptor file, string serviceFullName, string methodName, DuplexAdder<TRequest, TResponse> adder)
             : base(file, serviceFullName, methodName, MethodKind.DuplexStreaming, typeof(TRequest), typeof(TResponse))
         {
             RequestCodec = CodecFor<TRequest>(Descriptor.InputType);
             ResponseCodec = CodecFor<TResponse>(Descriptor.OutputType);
+            Adder = adder;
         }
+
+        /// <summary>
+        /// Like the constructor, but every handler bound to this method runs in code compiled for <typeparamref name="TTag"/>.
+        /// The generator passes an empty struct of the method's own, so each method gets its own compiled entry and its own
+        /// handler call site. Method objects made with the constructor share one.
+        /// </summary>
+        public static DuplexMethod<TRequest, TResponse> Create<TTag>(FileDescriptor file, string serviceFullName, string methodName)
+            where TTag : struct
+            => new DuplexMethod<TRequest, TResponse>(file, serviceFullName, methodName, DuplexAdder<TRequest, TResponse, TTag>.Instance);
+
+        internal DuplexAdder<TRequest, TResponse> Adder { get; }
 
         internal ProtobufCodec<TRequest> RequestCodec { get; }
 

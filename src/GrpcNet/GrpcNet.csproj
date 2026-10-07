@@ -6,5 +6,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="GrpcNet.Tests" />
+    <InternalsVisibleTo Include="GrpcNet.Protobuf.Tests" />
+    <InternalsVisibleTo Include="GrpcNet.Generator.EndToEnd.Tests" />
   </ItemGroup>
 </Project>

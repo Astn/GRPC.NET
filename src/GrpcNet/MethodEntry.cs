@@ -132,17 +132,18 @@ namespace GrpcNet
         }
     }
 
-    /// <summary>A unary method bound to a synchronous delegate.</summary>
-    internal sealed class UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+    /// <summary>A unary method with a synchronous invoker.</summary>
+    internal sealed class UnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>
         where TResponseCodec : struct, IMessageCodec<TResponse>
+        where TInvoker : struct, IUnaryInvoker<TRequest, TResponse>
     {
-        private readonly Func<TRequest, TResponse> _handler;
+        private readonly TInvoker _invoker;
 
-        internal UnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, TResponse> handler, object? contract)
+        internal UnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract)
             : base(path, MethodKind.Unary, requestCodec, responseCodec, contract)
         {
-            _handler = handler;
+            _invoker = invoker;
         }
 
         internal override bool IsSynchronousUnary => true;
@@ -163,7 +164,7 @@ namespace GrpcNet
             TResponse response;
             try
             {
-                response = _handler(request);
+                response = _invoker.Invoke(request);
             }
             catch (Exception ex)
             {
@@ -184,22 +185,23 @@ namespace GrpcNet
             ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
         {
             TRequest request = await reader.ReadSingleAsync(readStamp).ConfigureAwait(false);
-            TResponse response = _handler(request);
+            TResponse response = _invoker.Invoke(request);
             await writer.WriteAsync(writeStamp, in response).ConfigureAwait(false);
         }
     }
 
-    /// <summary>A unary method bound to an asynchronous delegate.</summary>
-    internal sealed class AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+    /// <summary>A unary method with an asynchronous invoker, with or without the cancellation token.</summary>
+    internal sealed class AsyncUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>
         where TResponseCodec : struct, IMessageCodec<TResponse>
+        where TInvoker : struct, IAsyncUnaryInvoker<TRequest, TResponse>
     {
-        private readonly Func<TRequest, CancellationToken, ValueTask<TResponse>> _handler;
+        private readonly TInvoker _invoker;
 
-        internal AsyncUnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, CancellationToken, ValueTask<TResponse>> handler, object? contract)
+        internal AsyncUnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract)
             : base(path, MethodKind.Unary, requestCodec, responseCodec, contract)
         {
-            _handler = handler;
+            _invoker = invoker;
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
@@ -207,45 +209,23 @@ namespace GrpcNet
             ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
         {
             TRequest request = await reader.ReadSingleAsync(readStamp).ConfigureAwait(false);
-            TResponse response = await _handler(request, cancellation).ConfigureAwait(false);
-            await writer.WriteAsync(writeStamp, in response).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>An asynchronous unary method whose handler takes no cancellation token.</summary>
-    internal sealed class TokenlessUnaryEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
-        where TRequestCodec : struct, IMessageCodec<TRequest>
-        where TResponseCodec : struct, IMessageCodec<TResponse>
-    {
-        private readonly Func<TRequest, ValueTask<TResponse>> _handler;
-
-        internal TokenlessUnaryEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, ValueTask<TResponse>> handler, object? contract)
-            : base(path, MethodKind.Unary, requestCodec, responseCodec, contract)
-        {
-            _handler = handler;
-        }
-
-        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
-        private protected override async ValueTask RunAsync(
-            ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
-        {
-            TRequest request = await reader.ReadSingleAsync(readStamp).ConfigureAwait(false);
-            TResponse response = await _handler(request).ConfigureAwait(false);
+            TResponse response = await _invoker.InvokeAsync(request, cancellation).ConfigureAwait(false);
             await writer.WriteAsync(writeStamp, in response).ConfigureAwait(false);
         }
     }
 
     /// <summary>A server-streaming method: one request, any number of responses.</summary>
-    internal sealed class ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+    internal sealed class ServerStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>
         where TResponseCodec : struct, IMessageCodec<TResponse>
+        where TInvoker : struct, IServerStreamingInvoker<TRequest, TResponse>
     {
-        private readonly Func<TRequest, MessageWriter<TResponse>, CancellationToken, ValueTask> _handler;
+        private readonly TInvoker _invoker;
 
-        internal ServerStreamingEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<TRequest, MessageWriter<TResponse>, CancellationToken, ValueTask> handler, object? contract)
+        internal ServerStreamingEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract)
             : base(path, MethodKind.ServerStreaming, requestCodec, responseCodec, contract)
         {
-            _handler = handler;
+            _invoker = invoker;
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
@@ -253,47 +233,49 @@ namespace GrpcNet
             ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
         {
             TRequest request = await reader.ReadSingleAsync(readStamp).ConfigureAwait(false);
-            await _handler(request, new MessageWriter<TResponse>(writer, writeStamp), cancellation).ConfigureAwait(false);
+            await _invoker.InvokeAsync(request, new MessageWriter<TResponse>(writer, writeStamp), cancellation).ConfigureAwait(false);
         }
     }
 
     /// <summary>A client-streaming method: any number of requests, one response.</summary>
-    internal sealed class ClientStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+    internal sealed class ClientStreamingEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>
         where TResponseCodec : struct, IMessageCodec<TResponse>
+        where TInvoker : struct, IClientStreamingInvoker<TRequest, TResponse>
     {
-        private readonly Func<MessageReader<TRequest>, CancellationToken, ValueTask<TResponse>> _handler;
+        private readonly TInvoker _invoker;
 
-        internal ClientStreamingEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<MessageReader<TRequest>, CancellationToken, ValueTask<TResponse>> handler, object? contract)
+        internal ClientStreamingEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract)
             : base(path, MethodKind.ClientStreaming, requestCodec, responseCodec, contract)
         {
-            _handler = handler;
+            _invoker = invoker;
         }
 
         [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder))]
         private protected override async ValueTask RunAsync(
             ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
         {
-            TResponse response = await _handler(new MessageReader<TRequest>(reader, readStamp), cancellation).ConfigureAwait(false);
+            TResponse response = await _invoker.InvokeAsync(new MessageReader<TRequest>(reader, readStamp), cancellation).ConfigureAwait(false);
             await writer.WriteAsync(writeStamp, in response).ConfigureAwait(false);
         }
     }
 
     /// <summary>A bidirectional streaming method.</summary>
-    internal sealed class DuplexEntry<TRequest, TResponse, TRequestCodec, TResponseCodec> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
+    internal sealed class DuplexEntry<TRequest, TResponse, TRequestCodec, TResponseCodec, TInvoker> : CodecEntry<TRequest, TResponse, TRequestCodec, TResponseCodec>
         where TRequestCodec : struct, IMessageCodec<TRequest>
         where TResponseCodec : struct, IMessageCodec<TResponse>
+        where TInvoker : struct, IDuplexInvoker<TRequest, TResponse>
     {
-        private readonly Func<MessageReader<TRequest>, MessageWriter<TResponse>, CancellationToken, ValueTask> _handler;
+        private readonly TInvoker _invoker;
 
-        internal DuplexEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, Func<MessageReader<TRequest>, MessageWriter<TResponse>, CancellationToken, ValueTask> handler, object? contract)
+        internal DuplexEntry(string path, TRequestCodec requestCodec, TResponseCodec responseCodec, TInvoker invoker, object? contract)
             : base(path, MethodKind.DuplexStreaming, requestCodec, responseCodec, contract)
         {
-            _handler = handler;
+            _invoker = invoker;
         }
 
         private protected override ValueTask RunAsync(
             ReaderCore<TRequest> reader, int readStamp, WriterCore<TResponse> writer, int writeStamp, CancellationToken cancellation)
-            => _handler(new MessageReader<TRequest>(reader, readStamp), new MessageWriter<TResponse>(writer, writeStamp), cancellation);
+            => _invoker.InvokeAsync(new MessageReader<TRequest>(reader, readStamp), new MessageWriter<TResponse>(writer, writeStamp), cancellation);
     }
 }

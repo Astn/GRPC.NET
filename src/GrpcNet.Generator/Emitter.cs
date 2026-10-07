@@ -6,6 +6,7 @@ namespace GrpcNet.Generator
     internal static class Emitter
     {
         public const string BinderName = "Binder";
+        public const string TagsName = "GrpcNetTags";
 
         private const string Protobuf = "global::GrpcNet.Protobuf.";
         private const string Core = "global::GrpcNet.";
@@ -67,9 +68,21 @@ namespace GrpcNet.Generator
             {
                 string type = MethodType(method);
                 w.Line("/// <summary>The " + KindText(method.Kind) + " method <c>/" + service.FullName + "/" + method.Name + "</c>.</summary>");
-                w.Line("public static readonly " + Hide(method.Name) + type + " " + Identifier(method.Name) + " = new " + type + "(" + file.ReflectionClass + ".Descriptor, \"" + service.FullName + "\", \"" + method.Name + "\");");
+                w.Line("public static readonly " + Hide(method.Name) + type + " " + Identifier(method.Name) + " = " + type + ".Create<" + self + "." + TagsName + "." + Identifier(method.Name) + ">(" + file.ReflectionClass + ".Descriptor, \"" + service.FullName + "\", \"" + method.Name + "\");");
                 w.Line();
             }
+
+            // A value-type generic argument is never shared, so a tag of the method's own gives it its own compiled code.
+            w.Line("/// <summary>One empty struct per method, so each method object's handlers run in code compiled for that method.</summary>");
+            w.Line("private static class " + TagsName);
+            w.Open();
+            foreach (MethodModel method in service.Methods)
+            {
+                w.Line("public " + Hide(method.Name) + "struct " + Identifier(method.Name) + " { }");
+            }
+
+            w.Close();
+            w.Line();
 
             w.Line("/// <summary>Binds a handler to every method of the service. Each handler is required, so leaving one out does not compile.</summary>");
             w.Line("public sealed class " + BinderName + " : " + Protobuf + "IServiceBinder");
