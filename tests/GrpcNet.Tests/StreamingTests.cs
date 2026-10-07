@@ -641,6 +641,42 @@ namespace GrpcNet.Tests
         }
 
         [Test]
+        public async Task TokenlessHandlerCancelledWhilePendingEndsCancelledWhenItCompletes()
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            GrpcProcessor processor = Build(b => b.AddAsyncUnary<int, int, IntCodec, IntCodec>(Path, default, default, async x =>
+            {
+                entered.SetResult();
+                await gate.Task;
+                return x + 1;
+            }));
+
+            var state = new TestCallState();
+            var requestPipe = new Pipe();
+            var responsePipe = new Pipe();
+            var record = new SinkRecord();
+            await requestPipe.Writer.WriteAsync(Frames.IntFrame(1));
+            requestPipe.Writer.Complete();
+            Task call = processor.ProcessAsync(new CallHead(processor.Resolve("/test.Stream/Call"u8), 0, state), requestPipe.Reader, responsePipe.Writer, new SharedSink(record)).AsTask();
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            // The handler took no token, so cancelling cannot interrupt it; the call is still pending until it completes.
+            state.Cancel();
+            await Task.Delay(20);
+            Assert.That(call.IsCompleted, Is.False);
+            Assert.That(record.CompleteCount, Is.EqualTo(0));
+
+            gate.SetResult();
+            await call.WaitAsync(TimeSpan.FromSeconds(30));
+            await responsePipe.Writer.FlushAsync();
+            responsePipe.Writer.Complete();
+            Assert.That(record.LastStatus.Code, Is.EqualTo(StatusCode.Cancelled));
+            Assert.That(record.CompleteCount, Is.EqualTo(1));
+            Assert.That(await ReadFramesAsync(responsePipe.Reader), Is.Empty, "the late response is not written");
+        }
+
+        [Test]
         public async Task StalledStreamWaitsForCreditWhileAnotherStreamCompletes()
         {
             GrpcProcessor processor = Build(b => b.AddServerStreaming<int, byte[], IntCodec, BytesCodec>(Path, default, default, async (count, writer, ct) =>

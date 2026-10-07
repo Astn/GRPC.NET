@@ -268,7 +268,7 @@ app.MapGrpcNet(new Calculator.Binder
 });
 ```
 
-Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`. A binder member has one delegate type, and a lambda converts only to a delegate, so a binder's unary members take the synchronous form `Func<TRequest, TResponse>`; an asynchronous unary method is bound with single-method `Bind`.
+Single-method `Bind` is for services implemented only in part. An unbound method answers `UNIMPLEMENTED`. A binder member has one delegate type, and a lambda converts only to a delegate, so a binder's unary members take the synchronous form `Func<TRequest, TResponse>`; an asynchronous unary method is bound with single-method `BindAsync`.
 
 **Attribute-marked classes.** The JSON-RPC.NET style stays:
 
